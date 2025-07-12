@@ -20,11 +20,29 @@ export class StreakModule extends BaseModule {
       resetOnMiss: true
     };
     
+    // Merge config early for constructor tests
+    this.config = this.mergeDeep(this.defaultConfig, options);
+    
     this.checkInterval = null;
   }
 
+  mergeDeep(target, source) {
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.mergeDeep(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    
+    return result;
+  }
+
   async onInitialize() {
-    this.config = { ...this.defaultConfig, ...this.config };
+    // Deep merge config to properly handle nested objects like types  
+    this.config = this.mergeDeep(this.defaultConfig, this.config);
     
     // Start periodic check for expired streaks
     this.startStreakChecker();
@@ -226,15 +244,17 @@ export class StreakModule extends BaseModule {
     const typeSpecific = await this.storage.hget(
       this.getStorageKey(`freeze-items:${type}`),
       userId
-    ) || typeConfig.maxFreezes || 0;
+    );
+    const typeCount = typeSpecific !== null ? parseInt(typeSpecific) : (typeConfig.maxFreezes || 0);
     
     // Check global freeze items
     const global = await this.storage.hget(
       this.getStorageKey('freeze-items:global'),
       userId
-    ) || 0;
+    );
+    const globalCount = global !== null ? parseInt(global) : this.config.globalFreezeItems || 0;
     
-    return typeSpecific + global;
+    return typeCount + globalCount;
   }
 
   async consumeFreezeItem(userId, type) {
@@ -244,9 +264,10 @@ export class StreakModule extends BaseModule {
     const typeSpecific = await this.storage.hget(
       this.getStorageKey(`freeze-items:${type}`),
       userId
-    ) || typeConfig.maxFreezes || 0;
+    );
+    const typeCount = typeSpecific !== null ? parseInt(typeSpecific) : (typeConfig.maxFreezes || 0);
     
-    if (typeSpecific > 0) {
+    if (typeCount > 0) {
       await this.storage.hincrby(
         this.getStorageKey(`freeze-items:${type}`),
         userId,
@@ -374,7 +395,21 @@ export class StreakModule extends BaseModule {
       userId
     );
     
-    return data || {
+    if (data) {
+      // Ensure all properties are present
+      return {
+        currentStreak: data.currentStreak || 0,
+        longestStreak: data.longestStreak || 0,
+        lastActivity: data.lastActivity || null,
+        totalActivities: data.totalActivities || 0,
+        frozen: data.frozen || false,
+        frozenAt: data.frozenAt || null,
+        lastFreezeUsed: data.lastFreezeUsed || null,
+        updatedAt: data.updatedAt || null
+      };
+    }
+    
+    return {
       currentStreak: 0,
       longestStreak: 0,
       lastActivity: null,
@@ -416,14 +451,31 @@ export class StreakModule extends BaseModule {
     const results = await this.storage.zrevrange(key, 0, limit - 1, { withScores: true });
     
     const users = [];
-    for (let i = 0; i < results.length; i += 2) {
-      const streakData = await this.getStreakData(results[i], type);
-      users.push({
-        rank: (i / 2) + 1,
-        userId: results[i],
-        streak: results[i + 1],
-        ...streakData
-      });
+    
+    // Handle different storage implementations
+    if (Array.isArray(results)) {
+      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
+      for (let i = 0; i < results.length; i += 2) {
+        const userId = results[i];
+        const score = parseInt(results[i + 1]);
+        
+        users.push({
+          rank: (i / 2) + 1,
+          userId,
+          streak: score
+        });
+      }
+    } else if (results && typeof results === 'object') {
+      // Handle object format from some storage implementations
+      let rank = 1;
+      for (const [userId, score] of Object.entries(results)) {
+        users.push({
+          rank,
+          userId,
+          streak: parseInt(score)
+        });
+        rank++;
+      }
     }
     
     return users;

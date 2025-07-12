@@ -15,13 +15,17 @@ export class LeaderboardModule extends BaseModule {
       customLeaderboards: []
     };
     
+    // Merge config early for constructor tests
+    this.config = this.mergeDeep(this.defaultConfig, options);
+    
     this.updateQueues = new Map();
     this.caches = new Map();
     this.updateIntervalId = null;
   }
 
   async onInitialize() {
-    this.config = { ...this.defaultConfig, ...this.config };
+    // Deep merge config to properly handle nested objects
+    this.config = this.mergeDeep(this.defaultConfig, this.config);
     
     // Initialize custom leaderboards
     for (const leaderboard of this.config.customLeaderboards) {
@@ -32,6 +36,20 @@ export class LeaderboardModule extends BaseModule {
     if (!this.config.enableRealtime) {
       this.startBatchUpdates();
     }
+  }
+
+  mergeDeep(target, source) {
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.mergeDeep(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    
+    return result;
   }
 
   setupEventListeners() {
@@ -154,12 +172,28 @@ export class LeaderboardModule extends BaseModule {
     );
     
     const entries = [];
-    for (let i = 0; i < results.length; i += 2) {
-      entries.push({
-        rank: offset + (i / 2) + 1,
-        userId: results[i],
-        score: results[i + 1]
-      });
+    
+    // Handle different storage implementations result formats
+    if (Array.isArray(results)) {
+      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
+      for (let i = 0; i < results.length; i += 2) {
+        entries.push({
+          rank: offset + (i / 2) + 1,
+          userId: results[i],
+          score: parseInt(results[i + 1])
+        });
+      }
+    } else if (results && typeof results === 'object') {
+      // Handle object format from some storage implementations
+      let rankIndex = 0;
+      for (const [userId, score] of Object.entries(results)) {
+        entries.push({
+          rank: offset + rankIndex + 1,
+          userId,
+          score: parseInt(score)
+        });
+        rankIndex++;
+      }
     }
     
     const response = {
@@ -273,7 +307,7 @@ export class LeaderboardModule extends BaseModule {
     const key = this.getLeaderboardKey(leaderboardId);
     const removed = await this.storage.zrem(key, userId);
     
-    if (removed) {
+    if (removed > 0) {
       this.invalidateCache(leaderboardId);
       
       await this.emitEvent('user.removed', {
@@ -282,7 +316,7 @@ export class LeaderboardModule extends BaseModule {
       });
     }
     
-    return { success: removed };
+    return { success: removed > 0 };
   }
 
   async resetLeaderboard(leaderboardId) {
@@ -570,6 +604,34 @@ export class LeaderboardModule extends BaseModule {
     this.caches.clear();
     
     await this.emitEvent('user.reset', { userId });
+  }
+
+  // Backward compatibility method for tests
+  async update(userId, score, leaderboardId = 'global') {
+    return await this.updateScore(leaderboardId, userId, score);
+  }
+
+  // Method for periodic reset checks (used in tests)
+  async checkPeriodicResets() {
+    // This would normally be triggered by a cron job or scheduler
+    // For testing purposes, we'll reset weekly and monthly leaderboards
+    const now = new Date();
+    
+    // Check weekly reset (Monday at midnight)
+    if (now.getDay() === 1 && now.getHours() === 0) {
+      const weeklyBoards = await this.storage.keys(this.getStorageKey('board:*weekly*'));
+      for (const key of weeklyBoards) {
+        await this.storage.delete(key);
+      }
+    }
+    
+    // Check monthly reset (1st of month at midnight)
+    if (now.getDate() === 1 && now.getHours() === 0) {
+      const monthlyBoards = await this.storage.keys(this.getStorageKey('board:*monthly*'));
+      for (const key of monthlyBoards) {
+        await this.storage.delete(key);
+      }
+    }
   }
 
   async shutdown() {

@@ -15,6 +15,8 @@ export class PointsModule extends BaseModule {
       multipliers: {},
       minimumPoints: 0
     };
+    
+    // Don't initialize config here - it's set by BaseModule
   }
 
   async onInitialize() {
@@ -26,6 +28,8 @@ export class PointsModule extends BaseModule {
   }
 
   setupEventListeners() {
+    if (!this.eventManager) return;
+    
     // Listen for custom point events
     this.eventManager.on('points.award', async (event) => {
       const { userId, points, reason } = event.data;
@@ -39,8 +43,14 @@ export class PointsModule extends BaseModule {
   }
 
   async award(userId, points, reason = 'manual') {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
     validators.isUserId(userId);
     validators.isPositiveNumber(points, 'points');
+    if (!Number.isFinite(points)) {
+      throw new Error('points must be a finite number');
+    }
     
     const now = Date.now();
     const multiplier = await this.getActiveMultiplier(userId, reason);
@@ -77,11 +87,11 @@ export class PointsModule extends BaseModule {
     };
     
     // Update user points
-    const newTotal = await this.storage.hincrby(
+    const newTotal = Number(await this.storage.hincrby(
       this.getStorageKey('users'),
       userId,
       actualPoints
-    );
+    ));
     
     // Record transaction
     await this.storage.lpush(
@@ -138,11 +148,11 @@ export class PointsModule extends BaseModule {
     };
     
     // Update user points
-    const newTotal = await this.storage.hincrby(
+    const newTotal = Number(await this.storage.hincrby(
       this.getStorageKey('users'),
       userId,
       -points
-    );
+    ));
     
     // Ensure minimum points
     if (newTotal < this.config.minimumPoints) {
@@ -188,7 +198,7 @@ export class PointsModule extends BaseModule {
       userId
     );
     
-    return points || 0;
+    return Number(points) || 0;
   }
 
   async getTopUsers(limit = 10, period = 'all-time') {
@@ -200,11 +210,21 @@ export class PointsModule extends BaseModule {
       { withScores: true }
     );
     
+    // Handle the case where results is an array of objects (MemoryStorage format)
+    if (Array.isArray(results) && results.length > 0 && typeof results[0] === 'object' && 'member' in results[0]) {
+      return results.map((item, index) => ({
+        userId: item.member,
+        points: Number(item.score),
+        rank: index + 1
+      }));
+    }
+    
+    // Handle the flattened array format (Redis format)
     const users = [];
     for (let i = 0; i < results.length; i += 2) {
       users.push({
         userId: results[i],
-        points: results[i + 1],
+        points: Number(results[i + 1]),
         rank: (i / 2) + 1
       });
     }
@@ -225,7 +245,7 @@ export class PointsModule extends BaseModule {
     return {
       userId,
       rank: rank + 1,
-      points
+      points: Number(points)
     };
   }
 
@@ -265,7 +285,7 @@ export class PointsModule extends BaseModule {
 
   async checkPeriodLimit(userId, points, period, limit) {
     const key = this.getPeriodKey(userId, period);
-    const current = await this.storage.get(key) || 0;
+    const current = Number(await this.storage.get(key)) || 0;
     
     if (current + points > limit) {
       return {
@@ -311,21 +331,27 @@ export class PointsModule extends BaseModule {
     let multiplier = 1;
     
     // Global multipliers
-    if (this.config.multipliers.global) {
-      multiplier *= this.config.multipliers.global;
+    if (this.config.multipliers && this.config.multipliers.global) {
+      multiplier *= Number(this.config.multipliers.global) || 1;
     }
     
     // Reason-specific multipliers
-    if (this.config.multipliers[reason]) {
-      multiplier *= this.config.multipliers[reason];
+    if (this.config.multipliers && this.config.multipliers[reason]) {
+      const reasonMultiplier = this.config.multipliers[reason];
+      if (typeof reasonMultiplier === 'object' && reasonMultiplier.value) {
+        multiplier *= Number(reasonMultiplier.value) || 1;
+      } else {
+        multiplier *= Number(reasonMultiplier) || 1;
+      }
     }
     
     // Time-based multipliers (e.g., weekend bonus)
     const now = new Date();
     const dayOfWeek = now.getDay();
     
-    if (this.config.multipliers.weekend && (dayOfWeek === 0 || dayOfWeek === 6)) {
-      multiplier *= this.config.multipliers.weekend;
+    // Check for weekend multiplier only in config
+    if (this.config.multipliers && this.config.multipliers.weekend && (dayOfWeek === 0 || dayOfWeek === 6)) {
+      multiplier *= Number(this.config.multipliers.weekend) || 1;
     }
     
     // User-specific multipliers
@@ -334,8 +360,8 @@ export class PointsModule extends BaseModule {
       userId
     );
     
-    if (userMultiplier) {
-      multiplier *= userMultiplier;
+    if (userMultiplier && !isNaN(userMultiplier)) {
+      multiplier *= Number(userMultiplier);
     }
     
     // Event-based multipliers
@@ -343,8 +369,8 @@ export class PointsModule extends BaseModule {
       this.getStorageKey('event-multiplier')
     );
     
-    if (eventMultiplier) {
-      multiplier *= eventMultiplier;
+    if (eventMultiplier && !isNaN(eventMultiplier)) {
+      multiplier *= Number(eventMultiplier);
     }
     
     return multiplier;
@@ -513,9 +539,9 @@ export class PointsModule extends BaseModule {
       transactions
     ] = await Promise.all([
       this.getPoints(userId),
-      this.storage.get(this.getPeriodKey(userId, 'daily')) || 0,
-      this.storage.get(this.getPeriodKey(userId, 'weekly')) || 0,
-      this.storage.get(this.getPeriodKey(userId, 'monthly')) || 0,
+      this.storage.get(this.getPeriodKey(userId, 'daily')).then(v => Number(v) || 0),
+      this.storage.get(this.getPeriodKey(userId, 'weekly')).then(v => Number(v) || 0),
+      this.storage.get(this.getPeriodKey(userId, 'monthly')).then(v => Number(v) || 0),
       this.getUserRank(userId),
       this.getTransactionHistory(userId, 10)
     ]);

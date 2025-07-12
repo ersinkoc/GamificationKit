@@ -234,9 +234,14 @@ declare module '@oxog/gamification-kit' {
     constructor(config?: PointsModuleConfig);
     award(userId: string, points: number, reason?: string): Promise<any>;
     deduct(userId: string, points: number, reason?: string): Promise<any>;
-    getPointsData(userId: string): Promise<PointsData>;
-    getPointsHistory(userId: string, limit?: number): Promise<any[]>;
+    getPoints(userId: string): Promise<number>;
+    getTransactionHistory(userId: string, limit?: number): Promise<any[]>;
     getTopUsers(limit?: number, period?: 'daily' | 'weekly' | 'monthly' | 'all-time'): Promise<any[]>;
+    getUserStats(userId: string): Promise<any>;
+    setUserMultiplier(userId: string, multiplier: number, duration?: number): Promise<any>;
+    setEventMultiplier(multiplier: number, duration: number): Promise<any>;
+    checkLimits(userId: string, points: number): Promise<any>;
+    getUserRank(userId: string, period?: string): Promise<any>;
   }
 
   export class BadgeModule extends BaseModule {

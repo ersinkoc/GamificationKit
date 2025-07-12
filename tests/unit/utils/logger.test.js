@@ -20,7 +20,9 @@ describe('Logger', () => {
 
   afterEach(() => {
     // Restore console methods
-    Object.values(consoleSpy).forEach(spy => spy.mockRestore());
+    if (consoleSpy) {
+      Object.values(consoleSpy).forEach(spy => spy.mockRestore());
+    }
   });
 
   describe('constructor', () => {

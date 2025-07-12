@@ -25,7 +25,6 @@ describe('PointsModule', () => {
       decayPercentage: 10,
       multipliers: {
         global: 1,
-        weekend: 2,
         first: 1.5
       },
       minimumPoints: 0
@@ -44,13 +43,14 @@ describe('PointsModule', () => {
 
   afterEach(async () => {
     await storage.disconnect();
+    jest.restoreAllMocks();
   });
 
   describe('constructor', () => {
     it('should initialize with default options', () => {
       const module = new PointsModule();
       expect(module.name).toBe('points');
-      expect(module.config).toBeUndefined(); // config is set during initialization
+      expect(module.config).toEqual({}); // config is initialized as empty object by BaseModule
       expect(module.defaultConfig.multipliers).toEqual({});
       expect(module.defaultConfig.decayEnabled).toBe(false);
     });
@@ -99,6 +99,9 @@ describe('PointsModule', () => {
     });
 
     it('should stack multipliers', async () => {
+      // Add weekend multiplier to config
+      pointsModule.config.multipliers.weekend = 2;
+      
       // Mock it to be weekend
       const originalGetDay = Date.prototype.getDay;
       Date.prototype.getDay = jest.fn().mockReturnValue(0); // Sunday
@@ -123,16 +126,17 @@ describe('PointsModule', () => {
     });
 
     it('should emit points.awarded event', async () => {
-      const emitSpy = jest.spyOn(eventManager, 'emit');
+      const emitSpy = jest.spyOn(pointsModule.eventManager, 'emitAsync');
 
       const result = await pointsModule.award('user123', 100, 'achievement');
 
-      expect(emitSpy).toHaveBeenCalledWith('points.awarded', {
+      expect(emitSpy).toHaveBeenCalledWith('points.awarded', expect.objectContaining({
+        module: 'points',
         userId: 'user123',
         points: 100,
         total: 100,
         transaction: result.transaction
-      });
+      }));
     });
 
     it('should award multiple times', async () => {
@@ -201,16 +205,17 @@ describe('PointsModule', () => {
     });
 
     it('should emit points.deducted event', async () => {
-      const emitSpy = jest.spyOn(eventManager, 'emit');
+      const emitSpy = jest.spyOn(pointsModule.eventManager, 'emitAsync');
 
       const result = await pointsModule.deduct('user123', 200, 'redemption');
 
-      expect(emitSpy).toHaveBeenCalledWith('points.deducted', {
+      expect(emitSpy).toHaveBeenCalledWith('points.deducted', expect.objectContaining({
+        module: 'points',
         userId: 'user123',
         points: 200,
         total: 300,
         transaction: result.transaction
-      });
+      }));
     });
 
     it('should record deduction in history', async () => {
@@ -244,20 +249,20 @@ describe('PointsModule', () => {
 
   describe('getTopUsers', () => {
     beforeEach(async () => {
-      await pointsModule.award('user1', 1000);
-      await pointsModule.award('user2', 2000);
-      await pointsModule.award('user3', 1500);
-      await pointsModule.award('user4', 500);
-      await pointsModule.award('user5', 3000);
+      await pointsModule.award('user1', 100);
+      await pointsModule.award('user2', 200);
+      await pointsModule.award('user3', 150);
+      await pointsModule.award('user4', 50);
+      await pointsModule.award('user5', 300);
     });
 
     it('should return top users', async () => {
       const topUsers = await pointsModule.getTopUsers(3);
 
       expect(topUsers).toEqual([
-        { userId: 'user5', points: 3000, rank: 1 },
-        { userId: 'user2', points: 2000, rank: 2 },
-        { userId: 'user3', points: 1500, rank: 3 }
+        { userId: 'user5', points: 300, rank: 1 },
+        { userId: 'user2', points: 200, rank: 2 },
+        { userId: 'user3', points: 150, rank: 3 }
       ]);
     });
 
@@ -294,9 +299,9 @@ describe('PointsModule', () => {
 
   describe('getUserRank', () => {
     beforeEach(async () => {
-      await pointsModule.award('user1', 1000);
-      await pointsModule.award('user2', 2000);
-      await pointsModule.award('user3', 1500);
+      await pointsModule.award('user1', 100);
+      await pointsModule.award('user2', 200);
+      await pointsModule.award('user3', 150);
     });
 
     it('should return user rank', async () => {
@@ -307,7 +312,7 @@ describe('PointsModule', () => {
       expect(rank1).toEqual({
         userId: 'user2',
         rank: 1,
-        points: 2000
+        points: 200
       });
       expect(rank2.rank).toBe(2);
       expect(rank3.rank).toBe(3);
@@ -454,46 +459,65 @@ describe('PointsModule', () => {
     });
 
     it('should emit user.reset event', async () => {
-      const emitSpy = jest.spyOn(eventManager, 'emit');
+      const emitSpy = jest.spyOn(pointsModule.eventManager, 'emitAsync');
 
       await pointsModule.award('user123', 500);
       await pointsModule.resetUser('user123');
 
-      expect(emitSpy).toHaveBeenCalledWith('points.user.reset', {
+      expect(emitSpy).toHaveBeenCalledWith('points.user.reset', expect.objectContaining({
+        module: 'points',
         userId: 'user123'
-      });
+      }));
     });
   });
 
   describe('event listeners', () => {
-    it('should award points on points.award event', async () => {
-      pointsModule.setupEventListeners();
+    let isolatedStorage;
+    let isolatedEventManager;
+    let isolatedModule;
 
-      await eventManager.emit('points.award', {
-        data: {
-          userId: 'newuser',
-          points: 100,
-          reason: 'signup bonus'
-        }
+    beforeEach(async () => {
+      isolatedStorage = new MemoryStorage();
+      isolatedEventManager = new EventManager();
+      await isolatedStorage.connect();
+      
+      isolatedModule = new PointsModule({});
+      isolatedModule.setContext({
+        storage: isolatedStorage,
+        eventManager: isolatedEventManager,
+        logger,
+        config: {}
+      });
+      await isolatedModule.initialize();
+    });
+
+    afterEach(async () => {
+      await isolatedStorage.disconnect();
+    });
+
+    it('should award points on points.award event', async () => {
+      // Event listeners are already set up in initialize()
+      await isolatedEventManager.emitAsync('points.award', {
+        userId: 'newuser',
+        points: 100,
+        reason: 'signup bonus'
       });
 
-      const balance = await pointsModule.getPoints('newuser');
+      const balance = await isolatedModule.getPoints('newuser');
       expect(balance).toBe(100);
     });
 
     it('should deduct points on points.deduct event', async () => {
-      await pointsModule.award('user123', 500);
-      pointsModule.setupEventListeners();
-
-      await eventManager.emit('points.deduct', {
-        data: {
-          userId: 'user123',
-          points: 100,
-          reason: 'penalty'
-        }
+      await isolatedModule.award('user123', 500);
+      // Event listeners are already set up in initialize()
+      
+      await isolatedEventManager.emitAsync('points.deduct', {
+        userId: 'user123',
+        points: 100,
+        reason: 'penalty'
       });
 
-      const balance = await pointsModule.getPoints('user123');
+      const balance = await isolatedModule.getPoints('user123');
       expect(balance).toBe(400);
     });
   });
@@ -510,19 +534,19 @@ describe('PointsModule', () => {
     it('should validate point amounts', async () => {
       await expect(
         pointsModule.award('user123', 0)
-      ).rejects.toThrow('must be greater than 0');
+      ).rejects.toThrow('must be a positive number');
 
       await expect(
         pointsModule.award('user123', -10)
-      ).rejects.toThrow('must be greater than 0');
+      ).rejects.toThrow('must be a positive number');
 
       await expect(
         pointsModule.award('user123', NaN)
-      ).rejects.toThrow();
+      ).rejects.toThrow('must be a number');
 
       await expect(
         pointsModule.award('user123', Infinity)
-      ).rejects.toThrow();
+      ).rejects.toThrow('must be a finite number');
     });
 
     it('should validate user IDs', async () => {

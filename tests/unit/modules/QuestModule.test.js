@@ -213,7 +213,7 @@ describe('QuestModule', () => {
     });
 
     it('should enforce max active quests limit', async () => {
-      // Add more quests
+      // Add more quests up to the limit (3 based on config)
       for (let i = 1; i <= 3; i++) {
         questModule.addQuest({
           id: `quest${i}`,
@@ -223,7 +223,15 @@ describe('QuestModule', () => {
         await questModule.assignQuest('user123', `quest${i}`);
       }
 
-      const result = await questModule.assignQuest('user123', 'test_quest');
+      // Add a new quest to test the limit
+      questModule.addQuest({
+        id: 'overflow_quest',
+        name: 'Overflow Quest',
+        objectives: [{ id: 'obj', description: 'Should fail due to limit' }]
+      });
+      
+      // Now try to assign one more quest (should fail)
+      const result = await questModule.assignQuest('user123', 'overflow_quest');
       expect(result.success).toBe(false);
       expect(result.reason).toBe('max_active_quests');
       expect(result.limit).toBe(3);
@@ -251,8 +259,12 @@ describe('QuestModule', () => {
     });
 
     it('should handle quest completion limits', async () => {
-      testQuest.maxCompletions = 2;
-      questModule.quests.set('test_quest', testQuest);
+      // Update the quest to have completion limits
+      const questWithLimits = {
+        ...testQuest,
+        maxCompletions: 2
+      };
+      questModule.quests.set('test_quest', questWithLimits);
 
       // Complete quest twice
       for (let i = 0; i < 2; i++) {
@@ -263,6 +275,7 @@ describe('QuestModule', () => {
       const result = await questModule.assignQuest('user123', 'test_quest');
       expect(result.success).toBe(false);
       expect(result.reason).toBe('max_completions_reached');
+      // The actual implementation returns different properties
       expect(result.completions).toBe(2);
     });
 

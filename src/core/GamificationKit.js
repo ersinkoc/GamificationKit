@@ -372,18 +372,18 @@ export class GamificationKit {
     return { success: true, userId };
   }
 
-  express() {
-    const { expressMiddleware } = require('../middleware/express.js');
+  async express() {
+    const { expressMiddleware } = await import('../middleware/express.js');
     return expressMiddleware(this);
   }
 
-  fastify() {
-    const { fastifyPlugin } = require('../middleware/fastify.js');
+  async fastify() {
+    const { fastifyPlugin } = await import('../middleware/fastify.js');
     return fastifyPlugin;
   }
 
-  koa() {
-    const { koaMiddleware } = require('../middleware/koa.js');
+  async koa() {
+    const { koaMiddleware } = await import('../middleware/koa.js');
     return koaMiddleware(this);
   }
 

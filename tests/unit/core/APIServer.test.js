@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { APIServer } from '../../../src/core/APIServer.js';
 import { GamificationKit } from '../../../src/core/GamificationKit.js';
 import http from 'http';
@@ -19,7 +20,10 @@ describe('APIServer', () => {
       storage: {
         get: jest.fn().mockResolvedValue([])
       },
-      eventManager: new EventEmitter(),
+      eventManager: {
+        ...new EventEmitter(),
+        onWildcard: jest.fn()
+      },
       modules: new Map()
     };
 
@@ -36,6 +40,7 @@ describe('APIServer', () => {
       on: jest.fn()
     };
 
+    // Re-create the http.createServer mock for each test
     jest.spyOn(http, 'createServer').mockReturnValue(mockServer);
 
     apiServer = new APIServer({
@@ -46,7 +51,7 @@ describe('APIServer', () => {
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    jest.clearAllMocks();
   });
 
   describe('constructor', () => {
@@ -103,6 +108,7 @@ describe('APIServer', () => {
     });
 
     it('should close all websocket clients', async () => {
+      await apiServer.start();
       const mockWs = { close: jest.fn() };
       apiServer.websocketClients.add(mockWs);
       await apiServer.stop();

@@ -55,8 +55,8 @@ describe('validators', () => {
       expect(validators.isNumber(0, 'test')).toBe(true);
       expect(validators.isNumber(-123, 'test')).toBe(true);
       expect(validators.isNumber(3.14, 'test')).toBe(true);
-      expect(validators.isNumber(Infinity, 'test')).toBe(true);
-      expect(validators.isNumber(-Infinity, 'test')).toBe(true);
+      expect(() => validators.isNumber(Infinity, 'test')).toThrow('test must be a finite number');
+      expect(() => validators.isNumber(-Infinity, 'test')).toThrow('test must be a finite number');
     });
 
     it('should reject NaN', () => {
@@ -77,7 +77,7 @@ describe('validators', () => {
     it('should validate positive numbers', () => {
       expect(validators.isPositiveNumber(123, 'test')).toBe(true);
       expect(validators.isPositiveNumber(0.1, 'test')).toBe(true);
-      expect(validators.isPositiveNumber(Infinity, 'test')).toBe(true);
+      expect(() => validators.isPositiveNumber(Infinity, 'test')).toThrow('test must be a finite number');
     });
 
     it('should reject zero and negative numbers', () => {
@@ -502,8 +502,8 @@ describe('validators', () => {
     });
 
     it('should handle special number values', () => {
-      expect(validators.isNumber(Infinity, 'test')).toBe(true);
-      expect(validators.isNumber(-Infinity, 'test')).toBe(true);
+      expect(() => validators.isNumber(Infinity, 'test')).toThrow('test must be a finite number');
+      expect(() => validators.isNumber(-Infinity, 'test')).toThrow('test must be a finite number');
       expect(() => validators.isNumber(NaN, 'test')).toThrow();
     });
 

@@ -1,5 +1,3 @@
-import { jest } from '@jest/globals';
-
 // Mock fetch for webhook tests
 global.fetch = jest.fn(() =>
   Promise.resolve({
@@ -22,8 +20,9 @@ global.WebSocket = jest.fn(() => ({
 }));
 
 // Silence console during tests
+const originalConsole = console;
 global.console = {
-  ...console,
+  ...originalConsole,
   log: jest.fn(),
   debug: jest.fn(),
   info: jest.fn(),
@@ -35,7 +34,9 @@ global.console = {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
-  global.fetch.mockClear();
+  if (global.fetch && global.fetch.mockClear) {
+    global.fetch.mockClear();
+  }
 });
 
 // Clean up after each test

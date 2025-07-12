@@ -4,7 +4,7 @@ import {
   BadgeModule, 
   LevelModule,
   StreakModule
-} from '@oxog/gamification-kit';
+} from '../../index.js';
 
 console.log('🎮 GamificationKit Demo\n');
 
@@ -124,9 +124,9 @@ async function runDemo() {
 
     // Get points details
     console.log('\n💰 Points details:');
-    const points = await pointsModule.getPointsData(userId);
-    console.log(`Total points: ${points.total}`);
-    console.log(`Today's points: ${points.daily}`);
+    const points = await pointsModule.getPoints(userId);
+    console.log(`Total points: ${points}`);
+    console.log(`Points from stats: ${stats.modules.points.total}`);
 
     // Clean shutdown
     console.log('\n🔚 Shutting down...');

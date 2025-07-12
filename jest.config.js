@@ -1,6 +1,10 @@
 export default {
   testEnvironment: 'node',
-  transform: {},
+  testTimeout: 15000,
+  verbose: true,
+  detectOpenHandles: true,
+  forceExit: true,
+  maxWorkers: 1,
   testMatch: [
     '**/tests/**/*.test.js'
   ],
@@ -21,9 +25,5 @@ export default {
       statements: 15
     }
   },
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
-  testTimeout: 10000,
-  verbose: true,
-  detectOpenHandles: true,
-  forceExit: true
+  transform: {}
 };

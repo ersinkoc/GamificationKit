@@ -7,7 +7,7 @@ import {
   StreakModule,
   LeaderboardModule,
   QuestModule
-} from '@oxog/gamification-kit';
+} from '../../index.js';
 
 const app = express();
 app.use(express.json());
@@ -153,7 +153,7 @@ gamification.use(questModule);
 await gamification.initialize();
 
 // Use gamification middleware
-app.use(gamification.express());
+app.use(await gamification.express());
 
 // In-memory data store for demo
 const users = new Map();

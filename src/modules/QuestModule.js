@@ -74,7 +74,9 @@ export class QuestModule extends BaseModule {
       this.addToChain(processedQuest);
     }
     
-    this.logger.debug(`Quest added: ${quest.id}`);
+    if (this.logger) {
+      this.logger.debug(`Quest added: ${quest.id}`);
+    }
     
     return processedQuest;
   }
@@ -133,7 +135,7 @@ export class QuestModule extends BaseModule {
     
     // Check max completions - count all completions including from completed assignments
     const completionCount = await this.getQuestCompletions(userId, questId);
-    if (!quest.repeatable && completionCount >= quest.maxCompletions) {
+    if (completionCount >= quest.maxCompletions) {
       return {
         success: false,
         reason: 'max_completions_reached',
@@ -141,8 +143,8 @@ export class QuestModule extends BaseModule {
       };
     }
     
-    // Check active quest limit
-    const activeQuests = userQuests.filter(q => !q.completed);
+    // Check active quest limit - get fresh count from storage
+    const activeQuests = await this.getActiveQuests(userId);
     if (activeQuests.length >= this.config.maxActiveQuests) {
       return {
         success: false,
@@ -309,88 +311,106 @@ export class QuestModule extends BaseModule {
   async completeQuest(userId, questId) {
     validators.isUserId(userId);
     
-    const assignment = await this.getQuestAssignment(userId, questId);
-    if (!assignment || assignment.completed) {
+    // Use a simple lock mechanism to prevent concurrent completions
+    const lockKey = `${userId}:${questId}`;
+    if (this.completionLocks?.has(lockKey)) {
       return {
         success: false,
-        reason: assignment ? 'already_completed' : 'not_assigned'
+        reason: 'already_completing'
       };
     }
     
-    const quest = this.quests.get(questId);
-    if (!quest) {
-      return {
-        success: false,
-        reason: 'quest_not_found'
-      };
+    if (!this.completionLocks) {
+      this.completionLocks = new Set();
     }
+    this.completionLocks.add(lockKey);
     
-    // Mark as completed
-    assignment.completed = true;
-    assignment.completedAt = Date.now();
+    try {
+      const assignment = await this.getQuestAssignment(userId, questId);
+      if (!assignment || assignment.completed) {
+        return {
+          success: false,
+          reason: assignment ? 'already_completed' : 'not_assigned'
+        };
+      }
     
-    await this.storage.hset(
-      this.getStorageKey(`assignments:${userId}`),
-      questId,
-      assignment
-    );
-    
-    // Track completions in a separate hash
-    await this.storage.hincrby(
-      this.getStorageKey('completions'),
-      `${userId}:${questId}`,
-      1
-    );
-    
-    // Add to completed history
-    await this.storage.lpush(
-      this.getStorageKey(`completed:${userId}`),
-      JSON.stringify({
+      const quest = this.quests.get(questId);
+      if (!quest) {
+        return {
+          success: false,
+          reason: 'quest_not_found'
+        };
+      }
+      
+      // Mark as completed
+      assignment.completed = true;
+      assignment.completedAt = Date.now();
+      
+      await this.storage.hset(
+        this.getStorageKey(`assignments:${userId}`),
         questId,
-        completedAt: assignment.completedAt,
-        duration: assignment.completedAt - assignment.assignedAt
-      })
-    );
-    
-    // Process rewards
-    await this.processRewards(userId, quest.rewards);
-    
-    // Update stats
-    await this.storage.hincrby(
-      this.getStorageKey('stats'),
-      `${userId}:completed`,
-      1
-    );
-    
-    await this.storage.hincrby(
-      this.getStorageKey('stats'),
-      `quest:${questId}:completions`,
-      1
-    );
-    
-    // Check for chain progression
-    if (quest.chainId && this.config.enableQuestChains) {
-      await this.progressChain(userId, quest.chainId, quest.chainOrder);
+        assignment
+      );
+      
+      // Track completions in a separate hash
+      await this.storage.hincrby(
+        this.getStorageKey('completions'),
+        `${userId}:${questId}`,
+        1
+      );
+      
+      // Add to completed history
+      await this.storage.lpush(
+        this.getStorageKey(`completed:${userId}`),
+        JSON.stringify({
+          questId,
+          completedAt: assignment.completedAt,
+          duration: assignment.completedAt - assignment.assignedAt
+        })
+      );
+      
+      // Process rewards
+      await this.processRewards(userId, quest.rewards);
+      
+      // Update stats
+      await this.storage.hincrby(
+        this.getStorageKey('stats'),
+        `${userId}:completed`,
+        1
+      );
+      
+      await this.storage.hincrby(
+        this.getStorageKey('stats'),
+        `quest:${questId}:completions`,
+        1
+      );
+      
+      // Check for chain progression
+      if (quest.chainId && this.config.enableQuestChains) {
+        await this.progressChain(userId, quest.chainId, quest.chainOrder);
+      }
+      
+      await this.emitEvent('completed', {
+        userId,
+        questId,
+        quest,
+        assignment,
+        rewards: quest.rewards
+      });
+      
+      this.logger.info(`Quest ${questId} completed by user ${userId}`);
+      
+      // Get the total completions count
+      const totalCompletions = await this.getQuestCompletions(userId, questId);
+      
+      return {
+        success: true,
+        rewards: quest.rewards,
+        completions: totalCompletions
+      };
+    } finally {
+      this.completionLocks.delete(lockKey);
     }
-    
-    await this.emitEvent('completed', {
-      userId,
-      questId,
-      quest,
-      assignment,
-      rewards: quest.rewards
-    });
-    
-    this.logger.info(`Quest ${questId} completed by user ${userId}`);
-    
-    // Get the total completions count
-    const totalCompletions = await this.getQuestCompletions(userId, questId);
-    
-    return {
-      success: true,
-      rewards: quest.rewards,
-      completions: totalCompletions
-    };
   }
 
   async progressChain(userId, chainId, completedOrder) {

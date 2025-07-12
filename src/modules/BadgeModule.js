@@ -2,7 +2,7 @@ import { BaseModule } from './BaseModule.js';
 import { validators } from '../utils/validators.js';
 
 export class BadgeModule extends BaseModule {
-  constructor(options = {}) {
+  constructor(badges = [], options = {}) {
     super('badges', options);
     
     this.badges = new Map();
@@ -15,8 +15,8 @@ export class BadgeModule extends BaseModule {
     };
     
     // Add badges if provided
-    if (options.badges && Array.isArray(options.badges)) {
-      options.badges.forEach(badge => this.addBadge(badge));
+    if (Array.isArray(badges)) {
+      badges.forEach(badge => this.addBadge(badge));
     }
   }
 
@@ -60,7 +60,9 @@ export class BadgeModule extends BaseModule {
     };
     
     this.badges.set(badge.id, processedBadge);
-    this.logger.debug(`Badge added: ${badge.id}`);
+    if (this.logger) {
+      this.logger.debug(`Badge added: ${badge.id}`);
+    }
     
     return processedBadge;
   }
@@ -69,7 +71,9 @@ export class BadgeModule extends BaseModule {
     const removed = this.badges.delete(badgeId);
     if (removed) {
       this.progressTrackers.delete(badgeId);
-      this.logger.debug(`Badge removed: ${badgeId}`);
+      if (this.logger) {
+        this.logger.debug(`Badge removed: ${badgeId}`);
+      }
     }
     return removed;
   }

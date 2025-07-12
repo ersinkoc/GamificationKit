@@ -466,15 +466,16 @@ export class LevelModule extends BaseModule {
     const results = await this.storage.zrevrange(key, 0, limit - 1, { withScores: true });
     
     const users = [];
-    for (let i = 0; i < results.length; i += 2) {
-      const userData = await this.getUserData(results[i]);
+    for (let i = 0; i < results.length; i++) {
+      const { member: userId, score } = results[i];
+      const userData = await this.getUserData(userId);
       users.push({
-        rank: (i / 2) + 1,
-        userId: results[i],
+        rank: i + 1,
+        userId,
         level: userData.level,
         totalXP: userData.totalXP,
         prestige: userData.prestige,
-        score: results[i + 1]
+        score
       });
     }
     

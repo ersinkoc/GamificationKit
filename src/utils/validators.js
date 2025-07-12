@@ -19,6 +19,9 @@ export const validators = {
     if (typeof value !== 'number' || isNaN(value)) {
       throw new ValidationError(`${field} must be a number`, field, value);
     }
+    if (!isFinite(value)) {
+      throw new ValidationError(`${field} must be a finite number`, field, value);
+    }
     return true;
   },
 

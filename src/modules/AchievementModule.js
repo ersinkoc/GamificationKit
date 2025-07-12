@@ -19,12 +19,30 @@ export class AchievementModule extends BaseModule {
       categories: ['gameplay', 'social', 'collection', 'special']
     };
     
+    // Merge config early for constructor tests
+    this.config = this.mergeDeep(this.defaultConfig, options);
+    
     this.achievements = new Map();
     this.trackers = new Map();
   }
 
+  mergeDeep(target, source) {
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.mergeDeep(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    
+    return result;
+  }
+
   async onInitialize() {
-    this.config = { ...this.defaultConfig, ...this.config };
+    // Deep merge config to properly handle nested objects
+    this.config = this.mergeDeep(this.defaultConfig, this.config);
   }
 
   setupEventListeners() {
@@ -96,118 +114,136 @@ export class AchievementModule extends BaseModule {
     validators.isUserId(userId);
     validators.isInArray(tier, this.config.tiers, 'tier');
     
-    const achievement = this.achievements.get(achievementId);
-    if (!achievement) {
-      throw new Error(`Achievement not found: ${achievementId}`);
-    }
-    
-    if (!achievement.enabled) {
+    // Use a simple lock mechanism to prevent concurrent unlocks
+    const lockKey = `${userId}:${achievementId}:${tier}`;
+    if (this.unlockLocks?.has(lockKey)) {
       return {
         success: false,
-        reason: 'achievement_disabled'
+        reason: 'already_unlocking'
       };
     }
     
-    if (!achievement.tiers[tier]) {
-      return {
-        success: false,
-        reason: 'tier_not_found'
-      };
+    if (!this.unlockLocks) {
+      this.unlockLocks = new Set();
     }
+    this.unlockLocks.add(lockKey);
     
-    // Check if already unlocked
-    const userAchievements = await this.getUserAchievements(userId);
-    const existing = userAchievements.find(
-      a => a.achievementId === achievementId && a.tier === tier
-    );
+    try {
+      const achievement = this.achievements.get(achievementId);
+      if (!achievement) {
+        throw new Error(`Achievement not found: ${achievementId}`);
+      }
     
-    if (existing) {
-      return {
-        success: false,
-        reason: 'already_unlocked'
-      };
-    }
-    
-    // Check if previous tier is required
-    if (this.config.enableTierProgression) {
-      const tierIndex = this.config.tiers.indexOf(tier);
-      if (tierIndex > 0) {
-        const previousTier = this.config.tiers[tierIndex - 1];
-        const hasPrevious = userAchievements.some(
-          a => a.achievementId === achievementId && a.tier === previousTier
-        );
-        
-        if (!hasPrevious) {
-          return {
-            success: false,
-            reason: 'previous_tier_required',
-            requiredTier: previousTier
-          };
+      if (!achievement.enabled) {
+        return {
+          success: false,
+          reason: 'achievement_disabled'
+        };
+      }
+      
+      if (!achievement.tiers[tier]) {
+        return {
+          success: false,
+          reason: 'tier_not_found'
+        };
+      }
+      
+      // Check if already unlocked
+      const userAchievements = await this.getUserAchievements(userId);
+      const existing = userAchievements.find(
+        a => a.achievementId === achievementId && a.tier === tier
+      );
+      
+      if (existing) {
+        return {
+          success: false,
+          reason: 'already_unlocked'
+        };
+      }
+      
+      // Check if previous tier is required
+      if (this.config.enableTierProgression) {
+        const tierIndex = this.config.tiers.indexOf(tier);
+        if (tierIndex > 0) {
+          const previousTier = this.config.tiers[tierIndex - 1];
+          const hasPrevious = userAchievements.some(
+            a => a.achievementId === achievementId && a.tier === previousTier
+          );
+          
+          if (!hasPrevious) {
+            return {
+              success: false,
+              reason: 'previous_tier_required',
+              requiredTier: previousTier
+            };
+          }
         }
       }
+      
+      // Create unlock record
+      const unlock = {
+        id: `unlock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        userId,
+        achievementId,
+        tier,
+        achievementData: {
+          name: achievement.name,
+          description: achievement.description,
+          category: achievement.category,
+          tierName: achievement.tiers[tier].name,
+          tierDescription: achievement.tiers[tier].description
+        },
+        unlockedAt: Date.now()
+      };
+      
+      // Store unlock
+      await this.storage.lpush(
+        this.getStorageKey(`unlocks:${userId}`),
+        JSON.stringify(unlock)
+      );
+      
+      await this.storage.sadd(
+        this.getStorageKey(`user:${userId}:${achievementId}`),
+        tier
+      );
+      
+      // Update stats
+      await this.storage.hincrby(
+        this.getStorageKey('stats'),
+        `${achievementId}:${tier}`,
+        1
+      );
+      
+      // Process rewards
+      const rewards = achievement.tiers[tier].rewards;
+      if (rewards) {
+        await this.processRewards(userId, rewards, tier);
+      }
+      
+      // Calculate achievement points
+      const points = await this.calculateAchievementPoints(achievement, tier);
+      await this.updateAchievementScore(userId, points);
+      
+      await this.emitEvent('unlocked', {
+        userId,
+        achievementId,
+        tier,
+        achievement,
+        unlock,
+        points
+      });
+      
+      this.logger.info(`Achievement ${achievementId} (${tier}) unlocked for user ${userId}`);
+      
+      return {
+        success: true,
+        unlock,
+        points,
+        rewards
+      };
+    } finally {
+      this.unlockLocks.delete(lockKey);
     }
-    
-    // Create unlock record
-    const unlock = {
-      id: `unlock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      userId,
-      achievementId,
-      tier,
-      achievementData: {
-        name: achievement.name,
-        description: achievement.description,
-        category: achievement.category,
-        tierName: achievement.tiers[tier].name,
-        tierDescription: achievement.tiers[tier].description
-      },
-      unlockedAt: Date.now()
-    };
-    
-    // Store unlock
-    await this.storage.lpush(
-      this.getStorageKey(`unlocks:${userId}`),
-      JSON.stringify(unlock)
-    );
-    
-    await this.storage.sadd(
-      this.getStorageKey(`user:${userId}:${achievementId}`),
-      tier
-    );
-    
-    // Update stats
-    await this.storage.hincrby(
-      this.getStorageKey('stats'),
-      `${achievementId}:${tier}`,
-      1
-    );
-    
-    // Process rewards
-    const rewards = achievement.tiers[tier].rewards;
-    if (rewards) {
-      await this.processRewards(userId, rewards, tier);
-    }
-    
-    // Calculate achievement points
-    const points = await this.calculateAchievementPoints(achievement, tier);
-    await this.updateAchievementScore(userId, points);
-    
-    await this.emitEvent('unlocked', {
-      userId,
-      achievementId,
-      tier,
-      achievement,
-      unlock,
-      points
-    });
-    
-    this.logger.info(`Achievement ${achievementId} (${tier}) unlocked for user ${userId}`);
-    
-    return {
-      success: true,
-      unlock,
-      points,
-      rewards
-    };
   }
 
   async calculateAchievementPoints(achievement, tier) {
@@ -283,15 +319,22 @@ export class AchievementModule extends BaseModule {
     
     const unlockedTiers = [];
     
-    for (const [tier, config] of Object.entries(achievement.tiers)) {
-      if (!userTiers.includes(tier) && progress >= config.requirement) {
-        if (this.config.enableTierProgression) {
-          // Check if previous tier is unlocked
+    if (this.config.enableTierProgression) {
+      // With progression enabled, unlock tiers in order only
+      for (const tier of this.config.tiers) {
+        if (achievement.tiers[tier] && !userTiers.includes(tier) && progress >= achievement.tiers[tier].requirement) {
           const tierIndex = this.config.tiers.indexOf(tier);
           if (tierIndex === 0 || userTiers.includes(this.config.tiers[tierIndex - 1])) {
             unlockedTiers.push(tier);
+            // Only unlock one tier at a time when progression is enabled
+            break;
           }
-        } else {
+        }
+      }
+    } else {
+      // Without progression, unlock all qualifying tiers
+      for (const [tier, config] of Object.entries(achievement.tiers)) {
+        if (!userTiers.includes(tier) && progress >= config.requirement) {
           unlockedTiers.push(tier);
         }
       }
@@ -359,7 +402,10 @@ export class AchievementModule extends BaseModule {
       -1
     );
     
-    return unlocks.map(u => JSON.parse(u));
+    // Parse and sort by unlock time (most recent first)
+    return unlocks
+      .map(u => JSON.parse(u))
+      .sort((a, b) => a.unlockedAt - b.unlockedAt);
   }
 
   async getUserProgress(userId, achievementId = null) {
@@ -444,15 +490,37 @@ export class AchievementModule extends BaseModule {
     );
     
     const users = [];
-    for (let i = 0; i < results.length; i += 2) {
-      const achievements = await this.getUserAchievements(results[i]);
-      users.push({
-        rank: (i / 2) + 1,
-        userId: results[i],
-        score: results[i + 1],
-        totalAchievements: achievements.length,
-        tierBreakdown: this.getTierBreakdown(achievements)
-      });
+    
+    // Handle different storage implementations result formats
+    if (Array.isArray(results)) {
+      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
+      for (let i = 0; i < results.length; i += 2) {
+        const userId = results[i];
+        const score = parseInt(results[i + 1]);
+        
+        const achievements = await this.getUserAchievements(userId);
+        users.push({
+          rank: (i / 2) + 1,
+          userId,
+          score,
+          totalAchievements: achievements.length,
+          tierBreakdown: this.getTierBreakdown(achievements)
+        });
+      }
+    } else if (results && typeof results === 'object') {
+      // Handle object format from some storage implementations
+      let rank = 1;
+      for (const [userId, score] of Object.entries(results)) {
+        const achievements = await this.getUserAchievements(userId);
+        users.push({
+          rank,
+          userId,
+          score: parseInt(score),
+          totalAchievements: achievements.length,
+          tierBreakdown: this.getTierBreakdown(achievements)
+        });
+        rank++;
+      }
     }
     
     return users;

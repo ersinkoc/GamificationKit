@@ -8,7 +8,11 @@ describe('GamificationKit', () => {
   let gk;
 
   beforeEach(() => {
-    gk = new GamificationKit();
+    gk = new GamificationKit({
+      api: { enabled: false },
+      websocket: { enabled: false },
+      webhooks: { enabled: false }
+    });
     jest.clearAllMocks();
   });
 
@@ -20,7 +24,8 @@ describe('GamificationKit', () => {
 
   describe('constructor', () => {
     it('should initialize with default config', () => {
-      expect(gk.config).toEqual({
+      const defaultGK = new GamificationKit();
+      expect(defaultGK.config).toEqual({
         appName: 'gamification-app',
         storage: { type: 'memory' },
         api: {
@@ -87,7 +92,10 @@ describe('GamificationKit', () => {
 
     it('should initialize with different storage types', async () => {
       const customGK = new GamificationKit({
-        storage: { type: 'memory' }
+        storage: { type: 'memory' },
+        api: { enabled: false },
+        websocket: { enabled: false },
+        webhooks: { enabled: false }
       });
 
       await customGK.initialize();
@@ -211,9 +219,8 @@ describe('GamificationKit', () => {
     it('should process rules when enabled', async () => {
       const evaluateSpy = jest.spyOn(gk.ruleEngine, 'evaluate');
 
-      gk.ruleEngine.addRule({
-        id: 'login-bonus',
-        condition: { field: 'action', operator: '==', value: 'login' },
+      gk.ruleEngine.addRule('login-bonus', {
+        conditions: [{ field: 'action', operator: '==', value: 'login' }],
         actions: [{ type: 'award_points', points: 10 }]
       });
 
@@ -247,7 +254,11 @@ describe('GamificationKit', () => {
     });
 
     it('should trigger webhooks when enabled', async () => {
-      const customGK = new GamificationKit({ webhooks: { enabled: true } });
+      const customGK = new GamificationKit({ 
+        webhooks: { enabled: true },
+        api: { enabled: false },
+        websocket: { enabled: false }
+      });
       await customGK.initialize();
 
       const triggerSpy = jest.spyOn(customGK.webhookManager, 'trigger');
@@ -463,12 +474,11 @@ describe('GamificationKit', () => {
       const pointsModule = gk.modules.get('points');
       const awardSpy = jest.spyOn(pointsModule, 'award');
 
-      gk.ruleEngine.addRule({
-        id: 'double-points-weekend',
-        condition: {
+      gk.ruleEngine.addRule('double-points-weekend', {
+        conditions: [{
           operator: 'function',
           function: 'isWeekend'
-        },
+        }],
         actions: [{
           type: 'custom',
           handler: async (context, gk) => {
@@ -478,7 +488,7 @@ describe('GamificationKit', () => {
         }]
       });
 
-      gk.ruleEngine.registerFunction('isWeekend', () => true);
+      gk.ruleEngine.addFunction('isWeekend', () => true);
 
       await gk.track('user.action', {
         userId: 'user123'
@@ -488,15 +498,14 @@ describe('GamificationKit', () => {
     });
 
     it('should handle complex rule conditions', async () => {
-      gk.ruleEngine.addRule({
-        id: 'vip-bonus',
-        condition: {
+      gk.ruleEngine.addRule('vip-bonus', {
+        conditions: [{
           operator: 'and',
           conditions: [
             { field: 'level', operator: '>=', value: 10 },
             { field: 'totalSpent', operator: '>', value: 1000 }
           ]
-        },
+        }],
         actions: [{ type: 'vip-reward', multiplier: 2 }]
       });
 
