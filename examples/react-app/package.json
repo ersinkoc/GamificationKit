@@ -1,0 +1,20 @@
+{
+  "name": "gamification-kit-react-example",
+  "version": "1.0.0",
+  "description": "React example for Gamification Kit",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "gamification-kit": "file:../.."
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^4.3.9"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}

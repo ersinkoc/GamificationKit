@@ -1,0 +1,59 @@
+# Source files
+src/**/*.test.js
+tests/
+examples/
+docs/
+
+# Development files
+.eslintrc.js
+.prettierrc
+jest.config.js
+webpack.*.js
+rollup.config.js
+tsconfig.json
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies
+node_modules/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Misc
+.env
+.env.*
+*.map
+.tmp/
+.cache/
+
+# Keep these
+!src/**/*.js
+!client/**/*.js
+!client/**/*.css
+!index.js
+!package.json
+!README.md
+!LICENSE
+!CHANGELOG.md

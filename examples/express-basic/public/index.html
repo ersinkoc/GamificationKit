@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gamification Kit Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        input, textarea, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #5a67d8;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .badge-list {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .badge {
+            background: #fbbf24;
+            color: #78350f;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .quest-item {
+            background: #f3f4f6;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .quest-progress {
+            background: #e5e7eb;
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .quest-progress-fill {
+            background: #10b981;
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .message {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .message.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .posts {
+            margin-top: 20px;
+        }
+
+        .post {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .post-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .post-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .post-actions button {
+            width: auto;
+            padding: 5px 15px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Gamification Kit Demo</h1>
+
+        <div id="message"></div>
+
+        <div class="section">
+            <h2>User Registration</h2>
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <button type="submit">Register</button>
+            </form>
+        </div>
+
+        <div class="section" id="userSection" style="display: none;">
+            <h2>User Stats</h2>
+            <div class="stats" id="stats"></div>
+            <div id="badges"></div>
+            <div id="quests"></div>
+        </div>
+
+        <div class="section" id="actionSection" style="display: none;">
+            <h2>Actions</h2>
+            
+            <h3>Create Post</h3>
+            <form id="postForm">
+                <div class="form-group">
+                    <label for="postTitle">Title</label>
+                    <input type="text" id="postTitle" required>
+                </div>
+                <div class="form-group">
+                    <label for="postContent">Content</label>
+                    <textarea id="postContent" rows="3" required></textarea>
+                </div>
+                <button type="submit">Create Post</button>
+            </form>
+
+            <div class="posts" id="posts"></div>
+        </div>
+    </div>
+
+    <script src="/gamification/widget.js"></script>
+    <script>
+        let currentUserId = null;
+        let widget = null;
+
+        function showMessage(text, type = 'success') {
+            const messageEl = document.getElementById('message');
+            messageEl.className = `message ${type}`;
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+            
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, 3000);
+        }
+
+        async function fetchJSON(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: { 'Content-Type': 'application/json' },
+                    ...options
+                });
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        async function loadUserStats() {
+            if (!currentUserId) return;
+            
+            const user = await fetchJSON(`/api/users/${currentUserId}`);
+            const quests = await fetchJSON(`/api/quests/${currentUserId}`);
+            
+            // Update stats
+            const stats = user.gamification;
+            const statsHtml = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats.modules.points?.total || 0}</div>
+                    <div class="stat-label">Points</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">Lvl ${stats.modules.levels?.level || 1}</div>
+                    <div class="stat-label">Level</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.modules.streaks?.streaks?.daily?.currentStreak || 0}</div>
+                    <div class="stat-label">Day Streak</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.modules.badges?.total || 0}</div>
+                    <div class="stat-label">Badges</div>
+                </div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+            
+            // Update badges
+            if (stats.modules.badges?.badges?.length > 0) {
+                const badgesHtml = `
+                    <h3>Badges</h3>
+                    <div class="badge-list">
+                        ${stats.modules.badges.badges.map(b => 
+                            `<div class="badge" title="${b.description}">${b.name}</div>`
+                        ).join('')}
+                    </div>
+                `;
+                document.getElementById('badges').innerHTML = badgesHtml;
+            }
+            
+            // Update quests
+            if (quests.quests?.length > 0) {
+                const questsHtml = `
+                    <h3>Active Quests</h3>
+                    ${quests.quests.map(q => {
+                        const total = q.objectives?.length || 0;
+                        const completed = q.objectives?.filter(o => o.completed).length || 0;
+                        const progress = total > 0 ? (completed / total) * 100 : 0;
+                        
+                        return `
+                            <div class="quest-item">
+                                <div>${q.questData?.name || 'Quest'}</div>
+                                <div class="quest-progress">
+                                    <div class="quest-progress-fill" style="width: ${progress}%"></div>
+                                </div>
+                                <small>${completed}/${total} objectives</small>
+                            </div>
+                        `;
+                    }).join('')}
+                `;
+                document.getElementById('quests').innerHTML = questsHtml;
+            }
+        }
+
+        async function loadPosts() {
+            // In a real app, you'd fetch posts from the server
+            // For demo, we'll just show created posts
+        }
+
+        // Register form
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const result = await fetchJSON('/api/register', {
+                method: 'POST',
+                body: JSON.stringify({ username })
+            });
+            
+            currentUserId = result.userId;
+            showMessage('Registration successful! Welcome badge earned!');
+            
+            // Show user sections
+            document.getElementById('userSection').style.display = 'block';
+            document.getElementById('actionSection').style.display = 'block';
+            
+            // Initialize widget
+            if (widget) widget.destroy();
+            widget = new GamificationWidget({
+                userId: currentUserId,
+                position: 'bottom-right',
+                theme: 'light',
+                websocket: true
+            });
+            widget.init();
+            
+            // Assign daily quests
+            await fetchJSON(`/api/quests/daily/${currentUserId}`, { method: 'POST' });
+            
+            // Load stats
+            await loadUserStats();
+        });
+
+        // Post form
+        document.getElementById('postForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!currentUserId) {
+                showMessage('Please register first', 'error');
+                return;
+            }
+            
+            const title = document.getElementById('postTitle').value;
+            const content = document.getElementById('postContent').value;
+            
+            await fetchJSON('/api/posts', {
+                method: 'POST',
+                body: JSON.stringify({ userId: currentUserId, title, content })
+            });
+            
+            showMessage('Post created! Points awarded!');
+            
+            // Clear form
+            document.getElementById('postForm').reset();
+            
+            // Reload stats
+            await loadUserStats();
+            
+            // Add post to UI
+            const postsEl = document.getElementById('posts');
+            const postHtml = `
+                <div class="post">
+                    <div class="post-title">${title}</div>
+                    <div>${content}</div>
+                    <div class="post-actions">
+                        <button onclick="likePost('post_${Date.now()}')">Like</button>
+                    </div>
+                </div>
+            `;
+            postsEl.insertAdjacentHTML('afterbegin', postHtml);
+        });
+
+        async function likePost(postId) {
+            if (!currentUserId) return;
+            
+            await fetchJSON(`/api/posts/${postId}/like`, {
+                method: 'POST',
+                body: JSON.stringify({ userId: currentUserId })
+            });
+            
+            showMessage('Post liked!');
+        }
+
+        // Auto-refresh stats
+        setInterval(() => {
+            if (currentUserId) {
+                loadUserStats();
+            }
+        }, 10000);
+    </script>
+</body>
+</html>
