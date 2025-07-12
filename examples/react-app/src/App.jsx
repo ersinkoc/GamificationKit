@@ -10,7 +10,7 @@ import {
   Leaderboard,
   StatsOverview,
   GamificationNotification
-} from 'gamification-kit/react';
+} from '@oxog/gamification-kit/client/react';
 import './App.css';
 
 function Dashboard() {

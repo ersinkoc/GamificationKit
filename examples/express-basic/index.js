@@ -7,7 +7,7 @@ import {
   StreakModule,
   LeaderboardModule,
   QuestModule
-} from 'gamification-kit';
+} from '@oxog/gamification-kit';
 
 const app = express();
 app.use(express.json());
@@ -193,7 +193,10 @@ app.post('/api/register', async (req, res) => {
   await req.gamification.track('user.registered', { userId });
   
   // Record daily streak
-  await req.gamification.recordStreak('daily', userId);
+  const streakModule = req.gamification.modules.get('streaks');
+  if (streakModule) {
+    await streakModule.recordActivity(userId, 'daily');
+  }
 
   res.json({ userId, username });
 });
@@ -230,7 +233,10 @@ app.post('/api/posts', async (req, res) => {
   
   // Award bonus points for first post
   if (isFirst) {
-    await req.gamification.awardPoints(50, 'first_post', userId);
+    const pointsModule = req.gamification.modules.get('points');
+    if (pointsModule) {
+      await pointsModule.award(userId, 50, 'first_post');
+    }
   }
   
   res.json(post);
@@ -261,7 +267,10 @@ app.post('/api/comments', async (req, res) => {
   });
   
   // Award points for commenting
-  await req.gamification.awardPoints(5, 'comment_created', userId);
+  const pointsModule = req.gamification.modules.get('points');
+  if (pointsModule) {
+    await pointsModule.award(userId, 5, 'comment_created');
+  }
   
   res.json(comment);
 });
@@ -277,7 +286,10 @@ app.post('/api/posts/:postId/like', async (req, res) => {
   }
   
   // Award points to post creator
-  await req.gamification.awardPoints(10, 'post_liked', post.userId);
+  const pointsModule = req.gamification.modules.get('points');
+  if (pointsModule) {
+    await pointsModule.award(post.userId, 10, 'post_liked');
+  }
   
   // Track like event
   await req.gamification.track('post.liked', {
@@ -331,7 +343,12 @@ app.get('/api/quests/:userId', async (req, res) => {
 app.post('/api/admin/xp', async (req, res) => {
   const { userId, xp, reason } = req.body;
   
-  const result = await req.gamification.addXP(xp, reason, userId);
+  const levelModule = req.gamification.modules.get('levels');
+  if (!levelModule) {
+    return res.status(404).json({ error: 'Level module not found' });
+  }
+  
+  const result = await levelModule.addXP(userId, xp, reason);
   
   res.json(result);
 });

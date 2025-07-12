@@ -46,6 +46,11 @@ export class GamificationKit {
         timeout: 5000,
         retries: 3
       },
+      websocket: {
+        enabled: false,
+        port: 3002,
+        path: '/gamification/ws'
+      },
       metrics: {
         enabled: true,
         collectInterval: 60000
@@ -88,6 +93,10 @@ export class GamificationKit {
 
       if (this.config.api.enabled) {
         await this.initializeAPIServer();
+      }
+
+      if (this.config.websocket?.enabled) {
+        await this.initializeWebSocketServer();
       }
 
       this.initialized = true;
@@ -166,6 +175,31 @@ export class GamificationKit {
     });
     this.metricsCollector.start();
     this.logger.info('MetricsCollector initialized');
+  }
+
+  async initializeWebSocketServer() {
+    if (!this.config.websocket?.enabled) return;
+    
+    try {
+      const { WebSocketServer } = await import('./WebSocketServer.js');
+      
+      this.websocketServer = new WebSocketServer({
+        port: this.config.websocket.port || 3002,
+        path: this.config.websocket.path || '/gamification/ws',
+        authHandler: this.config.websocket.authHandler
+      });
+      
+      this.websocketServer.setContext({
+        eventManager: this.eventManager,
+        logger: this.logger.child('WebSocketServer')
+      });
+      
+      await this.websocketServer.start();
+      this.logger.info('WebSocketServer initialized');
+    } catch (error) {
+      this.logger.warn('Failed to initialize WebSocket server:', error.message);
+      // Don't throw - WebSocket is optional
+    }
   }
 
   async initializeModules() {
@@ -358,6 +392,10 @@ export class GamificationKit {
 
     if (this.apiServer) {
       await this.apiServer.stop();
+    }
+
+    if (this.websocketServer) {
+      await this.websocketServer.stop();
     }
 
     if (this.metricsCollector) {

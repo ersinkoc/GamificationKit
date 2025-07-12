@@ -1,18 +1,42 @@
 {
-  "name": "gamification-kit",
+  "name": "@oxog/gamification-kit",
   "version": "1.0.0",
   "description": "A comprehensive, production-ready gamification kit for Node.js applications",
   "main": "index.js",
+  "types": "index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "types": "./index.d.ts"
+    },
+    "./client/react": {
+      "import": "./client/react/GamificationComponents.jsx"
+    },
+    "./client/widget": {
+      "import": "./client/widget/widget.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src/",
+    "client/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "start": "node index.js",
-    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
-    "test:watch": "NODE_OPTIONS='--experimental-vm-modules' jest --watch",
-    "test:coverage": "NODE_OPTIONS='--experimental-vm-modules' jest --coverage",
-    "test:ci": "NODE_OPTIONS='--experimental-vm-modules' jest --ci --coverage --maxWorkers=2",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "test:coverage": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "test:ci": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --ci --coverage --maxWorkers=2",
     "lint": "eslint src/**/*.js",
     "build:widget": "webpack --config webpack.widget.config.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "prepublishOnly": "npm run lint && npm test",
+    "prepare": "npm run build:widget || echo 'Widget build failed, skipping'"
   },
   "keywords": [
     "gamification",
@@ -21,19 +45,40 @@
     "achievements",
     "leaderboard",
     "levels",
+    "streaks",
+    "quests",
+    "rewards",
     "nodejs",
-    "framework-agnostic"
+    "express",
+    "fastify",
+    "koa",
+    "framework-agnostic",
+    "typescript"
   ],
-  "author": "",
+  "author": "Ersin Koç <ersin@oxog.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ersinkoc/GamificationKit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ersinkoc/GamificationKit/issues"
+  },
+  "homepage": "https://github.com/ersinkoc/GamificationKit#readme",
   "dependencies": {},
   "devDependencies": {
+    "@babel/core": "^7.23.5",
+    "@babel/preset-env": "^7.23.5",
     "@types/node": "^20.10.0",
+    "babel-loader": "^9.1.3",
+    "cross-env": "^7.0.3",
+    "css-loader": "^6.8.1",
     "eslint": "^8.55.0",
     "jest": "^29.7.0",
     "jest-mock-extended": "^3.0.5",
-    "supertest": "^6.3.3",
     "nodemon": "^3.0.2",
+    "style-loader": "^3.3.3",
+    "supertest": "^6.3.3",
     "webpack": "^5.89.0",
     "webpack-cli": "^5.1.4"
   },
@@ -43,7 +88,8 @@
     "pg": "^8.11.3",
     "express": "^4.18.2",
     "fastify": "^4.25.1",
-    "koa": "^2.14.2"
+    "koa": "^2.14.2",
+    "ws": "^8.15.0"
   },
   "engines": {
     "node": ">=16.0.0"

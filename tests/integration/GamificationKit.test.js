@@ -11,45 +11,47 @@ describe('GamificationKit Integration Tests', () => {
 
   beforeEach(async () => {
     gk = new GamificationKit({
-      storage: 'memory',
-      enableMetrics: true,
-      enableWebhooks: false,
-      enableRules: true
+      storage: { type: 'memory' },
+      metrics: { enabled: true },
+      webhooks: { enabled: false },
+      modules: {
+        points: {
+          multipliers: {
+            weekend: { value: 2, condition: () => false },
+            premium: { value: 1.5, condition: (userId) => userId.includes('premium') }
+          },
+          limits: {
+            daily: 1000,
+            weekly: 5000
+          }
+        },
+        badges: {
+          autoAward: true
+        },
+        leaderboard: {
+          updateInterval: 1000
+        },
+        levels: {
+          levels: [
+            { level: 1, xpRequired: 0 },
+            { level: 2, xpRequired: 100 },
+            { level: 3, xpRequired: 250 },
+            { level: 4, xpRequired: 500 },
+            { level: 5, xpRequired: 1000 }
+          ]
+        },
+        streaks: {
+          gracePeriod: 24 * 60 * 60 * 1000 // 1 day
+        }
+      }
     });
 
     // Add all modules
-    gk.use('points', new PointsModule({
-      multipliers: {
-        weekend: { value: 2, condition: () => false },
-        premium: { value: 1.5, condition: (userId) => userId.includes('premium') }
-      },
-      limits: {
-        daily: 1000,
-        weekly: 5000
-      }
-    }));
-
-    gk.use('badges', new BadgeModule({
-      autoAward: true
-    }));
-
-    gk.use('leaderboard', new LeaderboardModule({
-      updateInterval: 1000
-    }));
-
-    gk.use('levels', new LevelModule({
-      levels: [
-        { level: 1, xpRequired: 0 },
-        { level: 2, xpRequired: 100 },
-        { level: 3, xpRequired: 250 },
-        { level: 4, xpRequired: 500 },
-        { level: 5, xpRequired: 1000 }
-      ]
-    }));
-
-    gk.use('streaks', new StreakModule({
-      gracePeriod: 24 * 60 * 60 * 1000 // 1 day
-    }));
+    gk.use(new PointsModule());
+    gk.use(new BadgeModule());
+    gk.use(new LeaderboardModule());
+    gk.use(new LevelModule());
+    gk.use(new StreakModule());
 
     await gk.initialize();
     jest.clearAllMocks();
@@ -62,7 +64,8 @@ describe('GamificationKit Integration Tests', () => {
   describe('Cross-module integration', () => {
     it('should trigger badges when points milestones are reached', async () => {
       // Create milestone badge
-      await gk.modules.badges.create({
+      const badgeModule = gk.modules.get('badges');
+      await badgeModule.create({
         id: 'points-100',
         name: '100 Points',
         description: 'Earn 100 points',
@@ -76,13 +79,14 @@ describe('GamificationKit Integration Tests', () => {
       });
 
       // Award points to trigger milestone
-      await gk.modules.points.award('user123', 100);
+      const pointsModule = gk.modules.get('points');
+      await pointsModule.award('user123', 100);
 
       // Give event time to propagate
       await new Promise(resolve => setTimeout(resolve, 10));
 
       // Check if badge was awarded
-      const userBadges = await gk.modules.badges.getUserBadges('user123');
+      const userBadges = await badgeModule.getUserBadges('user123');
       expect(userBadges).toContainEqual(
         expect.objectContaining({ id: 'points-100' })
       );
@@ -90,12 +94,13 @@ describe('GamificationKit Integration Tests', () => {
 
     it('should update leaderboard when points are awarded', async () => {
       // Award points to multiple users
-      await gk.modules.points.award('user1', 500);
-      await gk.modules.points.award('user2', 300);
-      await gk.modules.points.award('user3', 700);
+      const pointsModule = gk.modules.get('points');
+      await pointsModule.award('user1', 500);
+      await pointsModule.award('user2', 300);
+      await pointsModule.award('user3', 700);
 
       // Check leaderboard
-      const leaderboard = await gk.modules.points.getLeaderboard({ limit: 3 });
+      const leaderboard = await pointsModule.getLeaderboard({ limit: 3 });
       
       expect(leaderboard[0]).toEqual({
         userId: 'user3',
@@ -119,15 +124,18 @@ describe('GamificationKit Integration Tests', () => {
       gk.ruleEngine.addRule({
         id: 'points-to-xp',
         condition: {
-          event: 'points.awarded',
-          field: 'points',
-          operator: '>',
-          value: 0
+          field: 'eventName',
+          operator: '==',
+          value: 'points.awarded'
         },
-        action: async (context) => {
-          const xp = Math.floor(context.points * 0.1);
-          await gk.modules.levels.addXP(context.userId, xp);
-        }
+        actions: [{
+          type: 'custom',
+          handler: async (context, gk) => {
+            const xp = Math.floor(context.points * 0.1);
+            const levelsModule = gk.modules.get('levels');
+            await levelsModule.addXP(context.userId, xp);
+          }
+        }]
       });
 
       // Award points
@@ -138,7 +146,8 @@ describe('GamificationKit Integration Tests', () => {
       });
 
       // Check level progress
-      const levelStats = await gk.modules.levels.getUserStats('user123');
+      const levelsModule = gk.modules.get('levels');
+      const levelStats = await levelsModule.getUserStats('user123');
       expect(levelStats.xp).toBe(100); // 10% of 1000
       expect(levelStats.level).toBe(2); // Should have leveled up
     });
@@ -148,21 +157,23 @@ describe('GamificationKit Integration Tests', () => {
       const baseTime = new Date('2024-01-01T12:00:00Z').getTime();
       jest.setSystemTime(baseTime);
 
+      const streaksModule = gk.modules.get('streaks');
+
       // Day 1
-      await gk.modules.streaks.increment('user123', 'daily-login');
-      let streak = await gk.modules.streaks.getStreak('user123', 'daily-login');
+      await streaksModule.increment('user123', 'daily-login');
+      let streak = await streaksModule.getStreak('user123', 'daily-login');
       expect(streak.current).toBe(1);
 
       // Day 2
       jest.setSystemTime(baseTime + 24 * 60 * 60 * 1000);
-      await gk.modules.streaks.increment('user123', 'daily-login');
-      streak = await gk.modules.streaks.getStreak('user123', 'daily-login');
+      await streaksModule.increment('user123', 'daily-login');
+      streak = await streaksModule.getStreak('user123', 'daily-login');
       expect(streak.current).toBe(2);
 
       // Day 3
       jest.setSystemTime(baseTime + 48 * 60 * 60 * 1000);
-      await gk.modules.streaks.increment('user123', 'daily-login');
-      streak = await gk.modules.streaks.getStreak('user123', 'daily-login');
+      await streaksModule.increment('user123', 'daily-login');
+      streak = await streaksModule.getStreak('user123', 'daily-login');
       expect(streak.current).toBe(3);
 
       jest.useRealTimers();
@@ -171,8 +182,12 @@ describe('GamificationKit Integration Tests', () => {
 
   describe('Rule engine integration', () => {
     it('should process complex rules with multiple conditions', async () => {
+      const badgeModule = gk.modules.get('badges');
+      const pointsModule = gk.modules.get('points');
+      const levelsModule = gk.modules.get('levels');
+
       // Create badges for testing
-      await gk.modules.badges.create({
+      await badgeModule.create({
         id: 'super-user',
         name: 'Super User',
         description: 'For exceptional users'
@@ -185,40 +200,41 @@ describe('GamificationKit Integration Tests', () => {
           operator: 'and',
           conditions: [
             {
-              event: 'user.activity',
               field: 'points',
               operator: '>=',
               value: 1000
             },
             {
-              event: 'user.activity',
               field: 'level',
               operator: '>=',
               value: 5
             },
             {
-              event: 'user.activity',
               field: 'badges',
               operator: '>=',
               value: 3
             }
           ]
         },
-        action: async (context) => {
-          await gk.modules.badges.award(context.userId, 'super-user');
-        }
+        actions: [{
+          type: 'custom',
+          handler: async (context, gk) => {
+            const badges = gk.modules.get('badges');
+            await badges.award(context.userId, 'super-user');
+          }
+        }]
       });
 
       // Setup user to meet conditions
-      await gk.modules.points.award('user123', 1500);
-      await gk.modules.levels.setLevel('user123', 5);
-      await gk.modules.badges.award('user123', 'points-100');
+      await pointsModule.award('user123', 1500);
+      await levelsModule.setLevel('user123', 5);
+      await badgeModule.award('user123', 'points-100');
 
       // Create more badges and award them
-      await gk.modules.badges.create({ id: 'badge1', name: 'Badge 1' });
-      await gk.modules.badges.create({ id: 'badge2', name: 'Badge 2' });
-      await gk.modules.badges.award('user123', 'badge1');
-      await gk.modules.badges.award('user123', 'badge2');
+      await badgeModule.create({ id: 'badge1', name: 'Badge 1' });
+      await badgeModule.create({ id: 'badge2', name: 'Badge 2' });
+      await badgeModule.award('user123', 'badge1');
+      await badgeModule.award('user123', 'badge2');
 
       // Trigger rule evaluation
       await gk.track('user.activity', {
@@ -229,7 +245,7 @@ describe('GamificationKit Integration Tests', () => {
       });
 
       // Check if super-user badge was awarded
-      const hasSuperBadge = await gk.modules.badges.hasBadge('user123', 'super-user');
+      const hasSuperBadge = await badgeModule.hasBadge('user123', 'super-user');
       expect(hasSuperBadge).toBe(true);
     });
 
@@ -240,50 +256,56 @@ describe('GamificationKit Integration Tests', () => {
         id: 'rule1',
         priority: 1,
         condition: {
-          event: 'test.trigger',
           field: 'value',
           operator: '==',
           value: 'start'
         },
-        action: async (context) => {
-          executionOrder.push('rule1');
-          await gk.eventManager.emit('test.chain', { 
-            userId: context.userId,
-            step: 2 
-          });
-        }
+        actions: [{
+          type: 'custom',
+          handler: async (context, gk) => {
+            executionOrder.push('rule1');
+            await gk.eventManager.emitAsync('test.chain', { 
+              userId: context.userId,
+              step: 2 
+            });
+          }
+        }]
       });
 
       gk.ruleEngine.addRule({
         id: 'rule2',
         priority: 2,
         condition: {
-          event: 'test.chain',
-          field: 'step',
+          field: 'eventName',
           operator: '==',
-          value: 2
+          value: 'test.chain'
         },
-        action: async (context) => {
-          executionOrder.push('rule2');
-          await gk.eventManager.emit('test.final', { 
-            userId: context.userId,
-            complete: true 
-          });
-        }
+        actions: [{
+          type: 'custom',
+          handler: async (context, gk) => {
+            executionOrder.push('rule2');
+            await gk.eventManager.emitAsync('test.final', { 
+              userId: context.userId,
+              complete: true 
+            });
+          }
+        }]
       });
 
       gk.ruleEngine.addRule({
         id: 'rule3',
         priority: 3,
         condition: {
-          event: 'test.final',
-          field: 'complete',
+          field: 'eventName',
           operator: '==',
-          value: true
+          value: 'test.final'
         },
-        action: async () => {
-          executionOrder.push('rule3');
-        }
+        actions: [{
+          type: 'custom',
+          handler: async () => {
+            executionOrder.push('rule3');
+          }
+        }]
       });
 
       await gk.track('test.trigger', {
@@ -300,41 +322,45 @@ describe('GamificationKit Integration Tests', () => {
 
   describe('getUserStats aggregation', () => {
     it('should aggregate stats from all modules', async () => {
+      const pointsModule = gk.modules.get('points');
+      const levelsModule = gk.modules.get('levels');
+      const streaksModule = gk.modules.get('streaks');
+      const badgeModule = gk.modules.get('badges');
+
       // Setup user data across modules
-      await gk.modules.points.award('user123', 750);
-      await gk.modules.levels.addXP('user123', 150);
-      await gk.modules.streaks.increment('user123', 'daily-login');
+      await pointsModule.award('user123', 750);
+      await levelsModule.addXP('user123', 150);
+      await streaksModule.increment('user123', 'daily-login');
       
-      await gk.modules.badges.create({ id: 'test-badge', name: 'Test Badge' });
-      await gk.modules.badges.award('user123', 'test-badge');
+      await badgeModule.create({ id: 'test-badge', name: 'Test Badge' });
+      await badgeModule.award('user123', 'test-badge');
 
       // Get aggregated stats
       const stats = await gk.getUserStats('user123');
 
       expect(stats).toEqual({
-        points: expect.objectContaining({
-          current: 750,
-          total: 750
-        }),
-        badges: expect.objectContaining({
-          earned: ['test-badge'],
-          count: 1
-        }),
-        levels: expect.objectContaining({
-          level: 2,
-          xp: 150,
-          progress: 50
-        }),
-        streaks: expect.objectContaining({
-          'daily-login': expect.objectContaining({
-            current: 1,
-            longest: 1
+        userId: 'user123',
+        modules: {
+          points: expect.objectContaining({
+            current: 750,
+            total: 750
+          }),
+          badges: expect.objectContaining({
+            earned: ['test-badge'],
+            count: 1
+          }),
+          levels: expect.objectContaining({
+            level: 2,
+            xp: 150,
+            progress: 50
+          }),
+          streaks: expect.objectContaining({
+            'daily-login': expect.objectContaining({
+              current: 1,
+              longest: 1
+            })
           })
-        }),
-        _global: expect.objectContaining({
-          userId: 'user123',
-          lastActive: expect.any(Date)
-        })
+        }
       });
     });
   });
@@ -348,11 +374,15 @@ describe('GamificationKit Integration Tests', () => {
         eventLog.push({ event: eventName, userId: data.userId });
       });
 
+      const pointsModule = gk.modules.get('points');
+      const badgeModule = gk.modules.get('badges');
+      const levelsModule = gk.modules.get('levels');
+
       // Perform actions
-      await gk.modules.points.award('user123', 100);
-      await gk.modules.badges.create({ id: 'event-test', name: 'Event Test' });
-      await gk.modules.badges.award('user123', 'event-test');
-      await gk.modules.levels.addXP('user123', 50);
+      await pointsModule.award('user123', 100);
+      await badgeModule.create({ id: 'event-test', name: 'Event Test' });
+      await badgeModule.award('user123', 'event-test');
+      await levelsModule.addXP('user123', 50);
 
       // Check event log
       expect(eventLog).toContainEqual({ event: 'points.awarded', userId: 'user123' });
@@ -363,43 +393,52 @@ describe('GamificationKit Integration Tests', () => {
 
   describe('Error handling', () => {
     it('should handle module errors gracefully', async () => {
+      const pointsModule = gk.modules.get('points');
+      const badgeModule = gk.modules.get('badges');
+
       // Mock storage error
       gk.storage.zincrby = jest.fn().mockRejectedValue(new Error('Storage error'));
 
       // Should throw but not crash
       await expect(
-        gk.modules.points.award('user123', 100)
+        pointsModule.award('user123', 100)
       ).rejects.toThrow('Storage error');
 
       // Other modules should still work
-      const badges = await gk.modules.badges.getUserBadges('user123');
+      const badges = await badgeModule.getUserBadges('user123');
       expect(badges).toEqual([]);
     });
 
     it('should handle concurrent operations', async () => {
+      const pointsModule = gk.modules.get('points');
+      const badgeModule = gk.modules.get('badges');
       const promises = [];
 
       // Concurrent point awards
       for (let i = 0; i < 10; i++) {
-        promises.push(gk.modules.points.award('user123', 10));
+        promises.push(pointsModule.award('user123', 10));
       }
 
       // Concurrent badge checks
       for (let i = 0; i < 5; i++) {
-        promises.push(gk.modules.badges.getUserBadges('user123'));
+        promises.push(badgeModule.getUserBadges('user123'));
       }
 
       // All should complete without errors
       await expect(Promise.all(promises)).resolves.not.toThrow();
 
       // Check final state
-      const balance = await gk.modules.points.getBalance('user123');
+      const balance = await pointsModule.getBalance('user123');
       expect(balance).toBe(100); // 10 * 10
     });
   });
 
   describe('Performance', () => {
     it('should handle large number of users efficiently', async () => {
+      const pointsModule = gk.modules.get('points');
+      const levelsModule = gk.modules.get('levels');
+      const streaksModule = gk.modules.get('streaks');
+      
       const startTime = Date.now();
       const userCount = 100;
       const promises = [];
@@ -408,9 +447,9 @@ describe('GamificationKit Integration Tests', () => {
       for (let i = 0; i < userCount; i++) {
         const userId = `user${i}`;
         promises.push(
-          gk.modules.points.award(userId, Math.floor(Math.random() * 1000)),
-          gk.modules.levels.addXP(userId, Math.floor(Math.random() * 100)),
-          gk.modules.streaks.increment(userId, 'daily-login')
+          pointsModule.award(userId, Math.floor(Math.random() * 1000)),
+          levelsModule.addXP(userId, Math.floor(Math.random() * 100)),
+          streaksModule.increment(userId, 'daily-login')
         );
       }
 
@@ -420,7 +459,7 @@ describe('GamificationKit Integration Tests', () => {
       expect(duration).toBeLessThan(5000); // Should complete in under 5 seconds
 
       // Verify leaderboard works with many users
-      const leaderboard = await gk.modules.points.getLeaderboard({ limit: 10 });
+      const leaderboard = await pointsModule.getLeaderboard({ limit: 10 });
       expect(leaderboard).toHaveLength(10);
       expect(leaderboard[0].points).toBeGreaterThanOrEqual(leaderboard[9].points);
     });
@@ -428,12 +467,17 @@ describe('GamificationKit Integration Tests', () => {
 
   describe('Data consistency', () => {
     it('should maintain consistency during resetUser', async () => {
+      const pointsModule = gk.modules.get('points');
+      const levelsModule = gk.modules.get('levels');
+      const badgeModule = gk.modules.get('badges');
+      const streaksModule = gk.modules.get('streaks');
+
       // Setup user data
-      await gk.modules.points.award('user123', 1000);
-      await gk.modules.levels.addXP('user123', 500);
-      await gk.modules.badges.create({ id: 'reset-test', name: 'Reset Test' });
-      await gk.modules.badges.award('user123', 'reset-test');
-      await gk.modules.streaks.increment('user123', 'test-streak');
+      await pointsModule.award('user123', 1000);
+      await levelsModule.addXP('user123', 500);
+      await badgeModule.create({ id: 'reset-test', name: 'Reset Test' });
+      await badgeModule.award('user123', 'reset-test');
+      await streaksModule.increment('user123', 'test-streak');
 
       // Reset user
       await gk.resetUser('user123');
@@ -441,25 +485,27 @@ describe('GamificationKit Integration Tests', () => {
       // Verify all data is cleared
       const stats = await gk.getUserStats('user123');
       
-      expect(stats.points.current).toBe(0);
-      expect(stats.points.total).toBe(0);
-      expect(stats.badges.count).toBe(0);
-      expect(stats.levels.level).toBe(1);
-      expect(stats.levels.xp).toBe(0);
-      expect(stats.streaks).toEqual({});
+      expect(stats.modules.points.current).toBe(0);
+      expect(stats.modules.points.total).toBe(0);
+      expect(stats.modules.badges.count).toBe(0);
+      expect(stats.modules.levels.level).toBe(1);
+      expect(stats.modules.levels.xp).toBe(0);
+      expect(stats.modules.streaks).toEqual({});
     });
 
     it('should handle partial module failures during reset', async () => {
-      await gk.modules.points.award('user123', 500);
+      const pointsModule = gk.modules.get('points');
+      await pointsModule.award('user123', 500);
 
       // Mock one module to fail
-      gk.modules.points.resetUser = jest.fn().mockRejectedValue(new Error('Reset failed'));
+      pointsModule.resetUser = jest.fn().mockRejectedValue(new Error('Reset failed'));
 
       // Reset should continue despite failure
       await gk.resetUser('user123');
 
       // Other modules should be reset
-      const badges = await gk.modules.badges.getUserBadges('user123');
+      const badgeModule = gk.modules.get('badges');
+      const badges = await badgeModule.getUserBadges('user123');
       expect(badges).toEqual([]);
     });
   });

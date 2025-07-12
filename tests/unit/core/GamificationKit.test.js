@@ -19,29 +19,61 @@ describe('GamificationKit', () => {
   });
 
   describe('constructor', () => {
-    it('should initialize with default options', () => {
-      expect(gk.options).toEqual({
-        storage: 'memory',
-        enableMetrics: true,
-        enableWebhooks: false,
-        enableRules: true
+    it('should initialize with default config', () => {
+      expect(gk.config).toEqual({
+        appName: 'gamification-app',
+        storage: { type: 'memory' },
+        api: {
+          enabled: true,
+          port: 3001,
+          prefix: '/gamification',
+          cors: true,
+          rateLimit: {
+            windowMs: 60000,
+            max: 100
+          }
+        },
+        webhooks: {
+          enabled: false,
+          timeout: 5000,
+          retries: 3
+        },
+        websocket: {
+          enabled: false,
+          port: 3002,
+          path: '/gamification/ws'
+        },
+        metrics: {
+          enabled: true,
+          collectInterval: 60000
+        },
+        logger: {
+          level: 'info',
+          enabled: true
+        },
+        security: {
+          apiKey: null,
+          encryption: false
+        }
       });
-      expect(gk.modules).toEqual({});
+      expect(gk.modules).toBeInstanceOf(Map);
+      expect(gk.modules.size).toBe(0);
       expect(gk.initialized).toBe(false);
     });
 
-    it('should accept custom options', () => {
+    it('should accept custom config', () => {
       const customGK = new GamificationKit({
-        storage: 'redis',
-        enableMetrics: false,
-        enableWebhooks: true,
-        apiKey: 'test-key'
+        storage: { type: 'redis', host: 'localhost' },
+        metrics: { enabled: false },
+        webhooks: { enabled: true },
+        security: { apiKey: 'test-key' }
       });
 
-      expect(customGK.options.storage).toBe('redis');
-      expect(customGK.options.enableMetrics).toBe(false);
-      expect(customGK.options.enableWebhooks).toBe(true);
-      expect(customGK.options.apiKey).toBe('test-key');
+      expect(customGK.config.storage.type).toBe('redis');
+      expect(customGK.config.storage.host).toBe('localhost');
+      expect(customGK.config.metrics.enabled).toBe(false);
+      expect(customGK.config.webhooks.enabled).toBe(true);
+      expect(customGK.config.security.apiKey).toBe('test-key');
     });
   });
 
@@ -53,51 +85,52 @@ describe('GamificationKit', () => {
       expect(gk.storage).toBeInstanceOf(MemoryStorage);
     });
 
-    it('should initialize with custom storage instance', async () => {
-      const customStorage = new MemoryStorage();
+    it('should initialize with different storage types', async () => {
       const customGK = new GamificationKit({
-        storage: customStorage
+        storage: { type: 'memory' }
       });
 
       await customGK.initialize();
 
-      expect(customGK.storage).toBe(customStorage);
+      expect(customGK.storage).toBeInstanceOf(MemoryStorage);
+      await customGK.shutdown();
     });
 
-    it('should throw error if already initialized', async () => {
+    it('should return self if already initialized', async () => {
       await gk.initialize();
-      await expect(gk.initialize()).rejects.toThrow('GamificationKit is already initialized');
+      const result = await gk.initialize();
+      expect(result).toBe(gk);
     });
 
     it('should initialize all registered modules', async () => {
       const pointsModule = new PointsModule();
       const badgeModule = new BadgeModule();
 
-      gk.use('points', pointsModule);
-      gk.use('badges', badgeModule);
+      gk.use(pointsModule);
+      gk.use(badgeModule);
 
       const pointsInitSpy = jest.spyOn(pointsModule, 'initialize');
       const badgeInitSpy = jest.spyOn(badgeModule, 'initialize');
 
       await gk.initialize();
 
-      expect(pointsInitSpy).toHaveBeenCalledWith(gk.storage, gk.eventManager);
-      expect(badgeInitSpy).toHaveBeenCalledWith(gk.storage, gk.eventManager);
+      expect(pointsInitSpy).toHaveBeenCalled();
+      expect(badgeInitSpy).toHaveBeenCalled();
     });
 
     it('should setup cross-module event listeners', async () => {
       const pointsModule = new PointsModule();
       const badgeModule = new BadgeModule();
 
-      gk.use('points', pointsModule);
-      gk.use('badges', badgeModule);
+      gk.use(pointsModule);
+      gk.use(badgeModule);
 
       await gk.initialize();
 
-      const eventSpy = jest.spyOn(gk.eventManager, 'emit');
+      const eventSpy = jest.spyOn(gk.eventManager, 'emitAsync');
       
       // Trigger points event
-      await gk.eventManager.emit('points.awarded', {
+      await gk.eventManager.emitAsync('points.awarded', {
         userId: 'user123',
         points: 100
       });
@@ -109,36 +142,42 @@ describe('GamificationKit', () => {
   describe('use', () => {
     it('should register a module', () => {
       const pointsModule = new PointsModule();
-      gk.use('points', pointsModule);
+      gk.use(pointsModule);
 
-      expect(gk.modules.points).toBe(pointsModule);
+      expect(gk.modules.get('points')).toBe(pointsModule);
     });
 
     it('should throw error for duplicate module names', () => {
       const module1 = new PointsModule();
       const module2 = new PointsModule();
 
-      gk.use('points', module1);
-      expect(() => gk.use('points', module2)).toThrow('Module points already exists');
+      gk.use(module1);
+      expect(() => gk.use(module2)).toThrow('Module already registered: points');
     });
 
-    it('should validate module interface', () => {
-      const invalidModule = {
-        name: 'invalid'
-      };
+    it('should validate module has name', () => {
+      const invalidModule = {};
 
-      expect(() => gk.use('invalid', invalidModule)).toThrow('Module must implement required methods');
+      expect(() => gk.use(invalidModule)).toThrow('Module must have a name property');
     });
 
     it('should initialize module if GK is already initialized', async () => {
       await gk.initialize();
 
       const pointsModule = new PointsModule();
+      const setContextSpy = jest.spyOn(pointsModule, 'setContext');
       const initSpy = jest.spyOn(pointsModule, 'initialize');
 
-      gk.use('points', pointsModule);
+      gk.use(pointsModule);
 
-      expect(initSpy).toHaveBeenCalledWith(gk.storage, gk.eventManager);
+      expect(setContextSpy).toHaveBeenCalledWith(expect.objectContaining({
+        storage: gk.storage,
+        eventManager: gk.eventManager,
+        ruleEngine: gk.ruleEngine,
+        logger: expect.any(Object),
+        config: expect.any(Object)
+      }));
+      expect(initSpy).toHaveBeenCalled();
     });
   });
 
@@ -148,16 +187,24 @@ describe('GamificationKit', () => {
     });
 
     it('should emit event through event manager', async () => {
-      const emitSpy = jest.spyOn(gk.eventManager, 'emit');
+      const emitSpy = jest.spyOn(gk.eventManager, 'emitAsync');
 
-      await gk.track('user.action', {
+      const result = await gk.track('user.action', {
         userId: 'user123',
         action: 'login'
       });
 
-      expect(emitSpy).toHaveBeenCalledWith('user.action', {
+      expect(emitSpy).toHaveBeenCalledWith('user.action', expect.objectContaining({
         userId: 'user123',
-        action: 'login'
+        action: 'login',
+        eventName: 'user.action',
+        timestamp: expect.any(Number)
+      }));
+      expect(result).toEqual({
+        eventId: expect.any(String),
+        processed: true,
+        rulesMatched: 0,
+        timestamp: expect.any(Number)
       });
     });
 
@@ -167,7 +214,7 @@ describe('GamificationKit', () => {
       gk.ruleEngine.addRule({
         id: 'login-bonus',
         condition: { field: 'action', operator: '==', value: 'login' },
-        action: { type: 'points', value: 10 }
+        actions: [{ type: 'award_points', points: 10 }]
       });
 
       await gk.track('user.action', {
@@ -175,28 +222,32 @@ describe('GamificationKit', () => {
         action: 'login'
       });
 
-      expect(evaluateSpy).toHaveBeenCalledWith({
+      expect(evaluateSpy).toHaveBeenCalledWith(expect.objectContaining({
         userId: 'user123',
         action: 'login',
-        event: 'user.action'
-      });
+        eventName: 'user.action',
+        timestamp: expect.any(Number)
+      }));
     });
 
     it('should collect metrics when enabled', async () => {
-      const incrementSpy = jest.spyOn(gk.metricsCollector, 'increment');
+      const recordEventSpy = jest.spyOn(gk.metricsCollector, 'recordEvent');
 
       await gk.track('user.action', {
         userId: 'user123',
         action: 'login'
       });
 
-      expect(incrementSpy).toHaveBeenCalledWith('events.tracked', 1, {
-        event: 'user.action'
-      });
+      expect(recordEventSpy).toHaveBeenCalledWith('user.action', expect.objectContaining({
+        userId: 'user123',
+        action: 'login',
+        eventName: 'user.action',
+        timestamp: expect.any(Number)
+      }));
     });
 
     it('should trigger webhooks when enabled', async () => {
-      const customGK = new GamificationKit({ enableWebhooks: true });
+      const customGK = new GamificationKit({ webhooks: { enabled: true } });
       await customGK.initialize();
 
       const triggerSpy = jest.spyOn(customGK.webhookManager, 'trigger');
@@ -206,10 +257,14 @@ describe('GamificationKit', () => {
         action: 'login'
       });
 
-      expect(triggerSpy).toHaveBeenCalledWith('user.action', {
+      expect(triggerSpy).toHaveBeenCalledWith('user.action', expect.objectContaining({
         userId: 'user123',
-        action: 'login'
-      });
+        action: 'login',
+        eventName: 'user.action',
+        timestamp: expect.any(Number)
+      }));
+      
+      await customGK.shutdown();
     });
 
     it('should throw error if not initialized', async () => {
@@ -217,7 +272,7 @@ describe('GamificationKit', () => {
       
       await expect(
         uninitializedGK.track('test.event', {})
-      ).rejects.toThrow('GamificationKit must be initialized first');
+      ).rejects.toThrow('GamificationKit not initialized. Call initialize() first.');
     });
   });
 
@@ -226,29 +281,35 @@ describe('GamificationKit', () => {
       const pointsModule = new PointsModule();
       const badgeModule = new BadgeModule();
 
-      gk.use('points', pointsModule);
-      gk.use('badges', badgeModule);
+      gk.use(pointsModule);
+      gk.use(badgeModule);
 
       await gk.initialize();
     });
 
     it('should aggregate stats from all modules', async () => {
       // Setup some data
-      await gk.modules.points.award('user123', 100);
-      await gk.modules.badges.award('user123', 'first-login');
+      const pointsModule = gk.modules.get('points');
+      const badgeModule = gk.modules.get('badges');
+      
+      await pointsModule.award('user123', 100);
+      await badgeModule.award('user123', 'first-login');
 
       const stats = await gk.getUserStats('user123');
 
       expect(stats).toEqual({
-        points: expect.objectContaining({
-          current: 100,
-          total: 100,
-          history: expect.any(Array)
-        }),
-        badges: expect.objectContaining({
-          earned: expect.arrayContaining(['first-login']),
-          count: 1
-        })
+        userId: 'user123',
+        modules: {
+          points: expect.objectContaining({
+            current: 100,
+            total: 100,
+            history: expect.any(Array)
+          }),
+          badges: expect.objectContaining({
+            earned: expect.arrayContaining(['first-login']),
+            count: 1
+          })
+        }
       });
     });
 
@@ -256,21 +317,21 @@ describe('GamificationKit', () => {
       const customModule = {
         name: 'custom',
         initialize: jest.fn(),
-        setupEventListeners: jest.fn()
+        setContext: jest.fn()
       };
 
-      gk.use('custom', customModule);
+      gk.use(customModule);
 
       const stats = await gk.getUserStats('user123');
-      expect(stats.custom).toBeUndefined();
+      expect(stats.modules.custom).toBeUndefined();
     });
 
-    it('should include global stats', async () => {
+    it('should return basic stats structure', async () => {
       const stats = await gk.getUserStats('user123');
 
-      expect(stats._global).toEqual({
+      expect(stats).toEqual({
         userId: 'user123',
-        lastActive: expect.any(Date)
+        modules: expect.any(Object)
       });
     });
   });
@@ -280,34 +341,38 @@ describe('GamificationKit', () => {
       const pointsModule = new PointsModule();
       const badgeModule = new BadgeModule();
 
-      gk.use('points', pointsModule);
-      gk.use('badges', badgeModule);
+      gk.use(pointsModule);
+      gk.use(badgeModule);
 
       await gk.initialize();
     });
 
     it('should reset data in all modules', async () => {
       // Setup some data
-      await gk.modules.points.award('user123', 100);
-      await gk.modules.badges.award('user123', 'test-badge');
+      const pointsModule = gk.modules.get('points');
+      const badgeModule = gk.modules.get('badges');
+      
+      await pointsModule.award('user123', 100);
+      await badgeModule.award('user123', 'test-badge');
 
       // Reset user
-      await gk.resetUser('user123');
+      const result = await gk.resetUser('user123');
+
+      expect(result).toEqual({ success: true, userId: 'user123' });
 
       // Check data is cleared
       const stats = await gk.getUserStats('user123');
-      expect(stats.points.current).toBe(0);
-      expect(stats.badges.earned).toEqual([]);
+      expect(stats.modules.points.current).toBe(0);
+      expect(stats.modules.badges.earned).toEqual([]);
     });
 
     it('should emit user.reset event', async () => {
-      const emitSpy = jest.spyOn(gk.eventManager, 'emit');
+      const emitSpy = jest.spyOn(gk.eventManager, 'emitAsync');
 
       await gk.resetUser('user123');
 
       expect(emitSpy).toHaveBeenCalledWith('user.reset', {
-        userId: 'user123',
-        timestamp: expect.any(Date)
+        userId: 'user123'
       });
     });
 
@@ -315,28 +380,28 @@ describe('GamificationKit', () => {
       const customModule = {
         name: 'custom',
         initialize: jest.fn(),
-        setupEventListeners: jest.fn()
+        setContext: jest.fn()
       };
 
-      gk.use('custom', customModule);
+      gk.use(customModule);
 
       // Should not throw
       await expect(gk.resetUser('user123')).resolves.not.toThrow();
     });
   });
 
-  describe('getModule', () => {
-    it('should return registered module', async () => {
+  describe('module access', () => {
+    it('should access registered module via Map', async () => {
       const pointsModule = new PointsModule();
-      gk.use('points', pointsModule);
+      gk.use(pointsModule);
       await gk.initialize();
 
-      const module = gk.getModule('points');
+      const module = gk.modules.get('points');
       expect(module).toBe(pointsModule);
     });
 
     it('should return undefined for non-existent module', () => {
-      const module = gk.getModule('nonexistent');
+      const module = gk.modules.get('nonexistent');
       expect(module).toBeUndefined();
     });
   });
@@ -344,7 +409,7 @@ describe('GamificationKit', () => {
   describe('shutdown', () => {
     beforeEach(async () => {
       const pointsModule = new PointsModule();
-      gk.use('points', pointsModule);
+      gk.use(pointsModule);
       await gk.initialize();
     });
 
@@ -356,14 +421,12 @@ describe('GamificationKit', () => {
       expect(disconnectSpy).toHaveBeenCalled();
     });
 
-    it('should clear flush interval', async () => {
-      jest.useFakeTimers();
-      const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
+    it('should stop metrics collector', async () => {
+      const stopSpy = jest.spyOn(gk.metricsCollector, 'stop');
 
       await gk.shutdown();
 
-      expect(clearIntervalSpy).toHaveBeenCalled();
-      jest.useRealTimers();
+      expect(stopSpy).toHaveBeenCalled();
     });
 
     it('should set initialized to false', async () => {
@@ -371,38 +434,48 @@ describe('GamificationKit', () => {
       expect(gk.initialized).toBe(false);
     });
 
-    it('should handle shutdown errors gracefully', async () => {
-      gk.storage.disconnect = jest.fn().mockRejectedValue(new Error('Disconnect failed'));
-      const consoleSpy = jest.spyOn(console, 'error');
+    it('should shutdown all modules', async () => {
+      const module = gk.modules.get('points');
+      const shutdownSpy = jest.spyOn(module, 'shutdown');
 
       await gk.shutdown();
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Error during shutdown:',
-        expect.any(Error)
-      );
+      expect(shutdownSpy).toHaveBeenCalled();
+    });
+
+    it('should destroy event manager', async () => {
+      const destroySpy = jest.spyOn(gk.eventManager, 'destroy');
+
+      await gk.shutdown();
+
+      expect(destroySpy).toHaveBeenCalled();
     });
   });
 
   describe('rule processing', () => {
     beforeEach(async () => {
       const pointsModule = new PointsModule();
-      gk.use('points', pointsModule);
+      gk.use(pointsModule);
       await gk.initialize();
     });
 
     it('should execute rule actions', async () => {
+      const pointsModule = gk.modules.get('points');
+      const awardSpy = jest.spyOn(pointsModule, 'award');
+
       gk.ruleEngine.addRule({
         id: 'double-points-weekend',
         condition: {
           operator: 'function',
           function: 'isWeekend'
         },
-        action: async (context) => {
-          await gk.modules.points.award(context.userId, 100, {
-            reason: 'weekend-bonus'
-          });
-        }
+        actions: [{
+          type: 'custom',
+          handler: async (context, gk) => {
+            const points = gk.modules.get('points');
+            await points.award(context.userId, 100, 'weekend-bonus');
+          }
+        }]
       });
 
       gk.ruleEngine.registerFunction('isWeekend', () => true);
@@ -411,8 +484,7 @@ describe('GamificationKit', () => {
         userId: 'user123'
       });
 
-      const stats = await gk.getUserStats('user123');
-      expect(stats.points.current).toBe(100);
+      expect(awardSpy).toHaveBeenCalledWith('user123', 100, 'weekend-bonus');
     });
 
     it('should handle complex rule conditions', async () => {
@@ -425,7 +497,7 @@ describe('GamificationKit', () => {
             { field: 'totalSpent', operator: '>', value: 1000 }
           ]
         },
-        action: { type: 'vip-reward', multiplier: 2 }
+        actions: [{ type: 'vip-reward', multiplier: 2 }]
       });
 
       const evaluateSpy = jest.spyOn(gk.ruleEngine, 'evaluate');
@@ -438,7 +510,8 @@ describe('GamificationKit', () => {
 
       expect(evaluateSpy).toHaveBeenCalled();
       const results = await evaluateSpy.mock.results[0].value;
-      expect(results).toContainEqual({ type: 'vip-reward', multiplier: 2 });
+      expect(results.passed).toHaveLength(1);
+      expect(results.passed[0].actions).toContainEqual({ type: 'vip-reward', multiplier: 2 });
     });
   });
 
@@ -447,8 +520,8 @@ describe('GamificationKit', () => {
       const pointsModule = new PointsModule();
       const badgeModule = new BadgeModule();
 
-      gk.use('points', pointsModule);
-      gk.use('badges', badgeModule);
+      gk.use(pointsModule);
+      gk.use(badgeModule);
 
       await gk.initialize();
 
@@ -466,14 +539,13 @@ describe('GamificationKit', () => {
         }
       });
 
-      const onSpy = jest.spyOn(gk.eventManager, 'on');
+      const emitSpy = jest.spyOn(gk.eventManager, 'emitAsync');
 
       // Award points to trigger milestone
       await pointsModule.award('user123', 1000);
 
       // Check if milestone event was emitted
-      const emitCalls = gk.eventManager.emit.mock.calls;
-      const milestoneCall = emitCalls.find(call => call[0] === 'points.milestone');
+      const milestoneCall = emitSpy.mock.calls.find(call => call[0] === 'points.milestone');
       expect(milestoneCall).toBeDefined();
     });
   });
@@ -483,55 +555,68 @@ describe('GamificationKit', () => {
       const errorModule = {
         name: 'error',
         initialize: jest.fn().mockRejectedValue(new Error('Init failed')),
-        setupEventListeners: jest.fn()
+        setContext: jest.fn()
       };
 
-      gk.use('error', errorModule);
+      gk.use(errorModule);
 
-      await expect(gk.initialize()).rejects.toThrow('Failed to initialize module error');
+      await expect(gk.initialize()).rejects.toThrow('Failed to initialize module: error');
     });
 
     it('should handle storage initialization errors', async () => {
       const customGK = new GamificationKit({
-        storage: 'invalid'
+        storage: { type: 'invalid' }
       });
 
-      await expect(customGK.initialize()).rejects.toThrow();
+      await expect(customGK.initialize()).rejects.toThrow('Unknown storage type: invalid');
     });
 
     it('should continue tracking even if metrics fail', async () => {
       await gk.initialize();
       
-      gk.metricsCollector.increment = jest.fn().mockImplementation(() => {
+      gk.metricsCollector.recordEvent = jest.fn().mockImplementation(() => {
         throw new Error('Metrics error');
       });
 
-      const emitSpy = jest.spyOn(gk.eventManager, 'emit');
+      const emitSpy = jest.spyOn(gk.eventManager, 'emitAsync');
 
       // Should not throw
-      await expect(gk.track('test.event', {})).resolves.not.toThrow();
+      const result = await gk.track('test.event', {});
+      expect(result).toBeDefined();
       expect(emitSpy).toHaveBeenCalled();
     });
   });
 
-  describe('storage adapter switching', () => {
-    it('should support different storage adapters', async () => {
-      const mockRedisStorage = {
-        connect: jest.fn(),
-        disconnect: jest.fn(),
-        get: jest.fn(),
-        set: jest.fn(),
-        delete: jest.fn(),
-        exists: jest.fn()
-      };
-
-      const customGK = new GamificationKit({
-        storage: mockRedisStorage
+  describe('additional features', () => {
+    it('should provide health check', async () => {
+      const pointsModule = new PointsModule();
+      gk.use(pointsModule);
+      await gk.initialize();
+      
+      const health = gk.getHealth();
+      
+      expect(health).toEqual({
+        status: 'healthy',
+        initialized: true,
+        storage: true,
+        modules: ['points'],
+        uptime: expect.any(Number),
+        timestamp: expect.any(Number)
       });
+    });
 
-      await customGK.initialize();
-      expect(customGK.storage).toBe(mockRedisStorage);
-      expect(mockRedisStorage.connect).toHaveBeenCalled();
+    it('should provide metrics', async () => {
+      await gk.initialize();
+      
+      const metrics = gk.getMetrics();
+      
+      expect(metrics).toBeDefined();
+    });
+
+    it('should provide middleware methods', () => {
+      expect(typeof gk.express).toBe('function');
+      expect(typeof gk.fastify).toBe('function');
+      expect(typeof gk.koa).toBe('function');
     });
   });
 

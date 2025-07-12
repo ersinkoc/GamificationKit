@@ -1,0 +1,13 @@
+{
+  "name": "@oxog/gamification-kit-basic-demo",
+  "version": "1.0.0",
+  "description": "Basic demo of @oxog/gamification-kit features",
+  "type": "module",
+  "main": "demo.js",
+  "scripts": {
+    "start": "node demo.js"
+  },
+  "dependencies": {
+    "@oxog/gamification-kit": "file:../.."
+  }
+}

@@ -1,59 +1,55 @@
-# Source files
-src/**/*.test.js
+# Development and test files
 tests/
+coverage/
+.nyc_output/
+jest.config.js
+webpack.widget.config.js
+*.test.js
+*.spec.js
+
+# Example files
 examples/
+
+# Documentation source files
 docs/
 
-# Development files
-.eslintrc.js
-.prettierrc
-jest.config.js
-webpack.*.js
-rollup.config.js
-tsconfig.json
+# Configuration files
+.eslintrc*
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# Build and temporary files
+*.log
+*.tmp
+*.temp
+.DS_Store
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Development environment
+.env
+.env.local
+.env.*.local
 
 # CI/CD
-.github/
-.gitlab-ci.yml
 .travis.yml
+.gitlab-ci.yml
 .circleci/
 
 # Editor files
-.vscode/
-.idea/
-*.sublime-*
+*.swp
+*.swo
+*~
 
 # OS files
-.DS_Store
 Thumbs.db
+Desktop.ini
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Dependencies
-node_modules/
-
-# Coverage
-coverage/
-.nyc_output/
-
-# Misc
-.env
-.env.*
-*.map
-.tmp/
-.cache/
-
-# Keep these
-!src/**/*.js
-!client/**/*.js
-!client/**/*.css
-!index.js
-!package.json
-!README.md
-!LICENSE
-!CHANGELOG.md
+# Optional - include only built widget
+client/widget/*.js
+!client/widget/widget.js
+client/widget/*.css
+!client/widget/widget.css

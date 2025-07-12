@@ -1,12 +1,12 @@
 {
-  "name": "gamification-kit-react-example",
+  "name": "@oxog/gamification-kit-react-example",
   "version": "1.0.0",
-  "description": "React example for Gamification Kit",
+  "description": "React example for @oxog/gamification-kit",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "gamification-kit": "file:../.."
+    "@oxog/gamification-kit": "file:../.."
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",

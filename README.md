@@ -1,4 +1,4 @@
-# Gamification Kit for Node.js
+# @oxog/gamification-kit
 
 A comprehensive, production-ready gamification system for Node.js applications that can be easily integrated with minimal code changes.
 
@@ -19,13 +19,13 @@ A comprehensive, production-ready gamification system for Node.js applications t
 ## Installation
 
 ```bash
-npm install gamification-kit
+npm install @oxog/gamification-kit
 ```
 
 ## Quick Start
 
 ```javascript
-import { GamificationKit, PointsModule, BadgeModule, LevelModule } from 'gamification-kit';
+import { GamificationKit, PointsModule, BadgeModule, LevelModule } from '@oxog/gamification-kit';
 
 // Initialize the kit
 const gamification = new GamificationKit({
@@ -72,7 +72,7 @@ await gamification.track('post.created', {
 
 ```javascript
 import express from 'express';
-import { GamificationKit } from 'gamification-kit';
+import { GamificationKit } from '@oxog/gamification-kit';
 
 const app = express();
 const gamification = new GamificationKit();
@@ -315,7 +315,7 @@ import {
   StreakDisplay,
   QuestList,
   Leaderboard
-} from 'gamification-kit/react';
+} from '@oxog/gamification-kit/client/react';
 
 function App() {
   return (
@@ -433,7 +433,7 @@ const gamification = new GamificationKit({
 ### Custom Modules
 
 ```javascript
-import { BaseModule } from 'gamification-kit';
+import { BaseModule } from '@oxog/gamification-kit';
 
 class KarmaModule extends BaseModule {
   constructor(options) {
@@ -502,7 +502,7 @@ await gamification.storage.transaction([
 ## Testing
 
 ```javascript
-import { GamificationKit, MemoryStorage } from 'gamification-kit';
+import { GamificationKit, MemoryStorage } from '@oxog/gamification-kit';
 
 describe('Gamification Tests', () => {
   let gamification;
@@ -580,6 +580,6 @@ MIT
 
 ## Support
 
-- Documentation: [https://docs.gamification-kit.io](https://docs.gamification-kit.io)
-- Issues: [GitHub Issues](https://github.com/yourusername/gamification-kit/issues)
-- Discord: [Join our community](https://discord.gg/gamification-kit)
+- Repository: [GitHub](https://github.com/ersinkoc/GamificationKit)
+- Issues: [GitHub Issues](https://github.com/ersinkoc/GamificationKit/issues)
+- Author: [Ersin Koç](https://github.com/ersinkoc)

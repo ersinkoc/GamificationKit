@@ -1,7 +1,7 @@
 {
-  "name": "gamification-kit-express-example",
+  "name": "@oxog/gamification-kit-express-example",
   "version": "1.0.0",
-  "description": "Basic Express.js example for Gamification Kit",
+  "description": "Basic Express.js example for @oxog/gamification-kit",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "gamification-kit": "file:../.."
+    "@oxog/gamification-kit": "file:../.."
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

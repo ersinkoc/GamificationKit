@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-GamificationKit is a comprehensive, production-ready gamification system for Node.js applications. It provides a modular, event-driven architecture with multiple storage options and framework integrations.
+@oxog/gamification-kit is a comprehensive, production-ready gamification system for Node.js applications. It provides a modular, event-driven architecture with multiple storage options and framework integrations.
 
 ## Development Commands
 

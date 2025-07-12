@@ -131,12 +131,13 @@ export class QuestModule extends BaseModule {
       };
     }
     
-    // Check max completions
-    if (existing && existing.completions >= quest.maxCompletions) {
+    // Check max completions - count all completions including from completed assignments
+    const completionCount = await this.getQuestCompletions(userId, questId);
+    if (!quest.repeatable && completionCount >= quest.maxCompletions) {
       return {
         success: false,
         reason: 'max_completions_reached',
-        completions: existing.completions
+        completions: completionCount
       };
     }
     
@@ -178,8 +179,7 @@ export class QuestModule extends BaseModule {
       assignedAt: Date.now(),
       expiresAt: quest.timeLimit ? Date.now() + quest.timeLimit * 1000 : null,
       completed: false,
-      completedAt: null,
-      completions: existing ? existing.completions : 0
+      completedAt: null
     };
     
     // Store assignment
@@ -328,12 +328,18 @@ export class QuestModule extends BaseModule {
     // Mark as completed
     assignment.completed = true;
     assignment.completedAt = Date.now();
-    assignment.completions++;
     
     await this.storage.hset(
       this.getStorageKey(`assignments:${userId}`),
       questId,
       assignment
+    );
+    
+    // Track completions in a separate hash
+    await this.storage.hincrby(
+      this.getStorageKey('completions'),
+      `${userId}:${questId}`,
+      1
     );
     
     // Add to completed history
@@ -377,10 +383,13 @@ export class QuestModule extends BaseModule {
     
     this.logger.info(`Quest ${questId} completed by user ${userId}`);
     
+    // Get the total completions count
+    const totalCompletions = await this.getQuestCompletions(userId, questId);
+    
     return {
       success: true,
       rewards: quest.rewards,
-      completions: assignment.completions
+      completions: totalCompletions
     };
   }
 
@@ -536,6 +545,14 @@ export class QuestModule extends BaseModule {
     );
   }
 
+  async getQuestCompletions(userId, questId) {
+    const completions = await this.storage.hget(
+      this.getStorageKey('completions'),
+      `${userId}:${questId}`
+    );
+    return parseInt(completions || 0);
+  }
+
   async getUserQuests(userId, includeCompleted = true) {
     validators.isUserId(userId);
     
@@ -611,8 +628,9 @@ export class QuestModule extends BaseModule {
       q => !todayAssignments.includes(q.id)
     );
     
-    // Assign up to the daily limit
-    const toAssign = available.slice(0, this.config.dailyQuestLimit - todayAssignments.length);
+    // Calculate remaining slots, ensuring non-negative value
+    const remainingSlots = Math.max(0, this.config.dailyQuestLimit - todayAssignments.length);
+    const toAssign = available.slice(0, remainingSlots);
     const assigned = [];
     
     for (const quest of toAssign) {
@@ -662,12 +680,23 @@ export class QuestModule extends BaseModule {
     this.logger.info('Rotating daily quests...');
     
     // Get all users with active quests
-    const users = await this.storage.keys(
+    const keys = await this.storage.keys(
       this.getStorageKey('assignments:*')
     );
     
-    for (const key of users) {
-      const userId = key.split(':').pop();
+    // Extract user IDs from keys properly
+    const userIds = new Set();
+    const prefix = this.getStorageKey('assignments:');
+    for (const key of keys) {
+      // Remove the prefix to get the user ID
+      const userId = key.substring(prefix.length);
+      if (userId && userId !== '*') {
+        userIds.add(userId);
+      }
+    }
+    
+    // Assign daily quests to each user
+    for (const userId of userIds) {
       await this.assignDailyQuests(userId);
     }
     
@@ -684,7 +713,7 @@ export class QuestModule extends BaseModule {
     ] = await Promise.all([
       this.getActiveQuests(userId),
       this.getCompletedQuests(userId),
-      this.storage.hget(this.getStorageKey('stats'), `${userId}:completed`) || 0
+      this.storage.hget(this.getStorageKey('stats'), `${userId}:completed`)
     ]);
     
     const byCategory = {};
@@ -701,7 +730,7 @@ export class QuestModule extends BaseModule {
       
       inProgress[quest.questId] = {
         name: quest.questData.name,
-        progress: (completedObjectives / totalObjectives) * 100,
+        progress: totalObjectives > 0 ? (completedObjectives / totalObjectives) * 100 : 0,
         objectives: `${completedObjectives}/${totalObjectives}`,
         expiresIn: quest.expiresAt ? quest.expiresAt - Date.now() : null
       };
@@ -709,7 +738,7 @@ export class QuestModule extends BaseModule {
     
     return {
       active: activeQuests.length,
-      completed: totalCompleted,
+      completed: parseInt(totalCompleted || 0),
       byCategory,
       inProgress,
       dailyLimit: {
@@ -755,6 +784,17 @@ export class QuestModule extends BaseModule {
       this.getStorageKey('stats'),
       `${userId}:completed`
     );
+    
+    // Reset completions for this user
+    const completionsKey = this.getStorageKey('completions');
+    const allCompletions = await this.storage.hgetall(completionsKey);
+    
+    if (allCompletions) {
+      const keysToDelete = Object.keys(allCompletions).filter(key => key.startsWith(`${userId}:`));
+      for (const key of keysToDelete) {
+        await this.storage.hdel(completionsKey, key);
+      }
+    }
     
     await this.emitEvent('user.reset', { userId });
   }

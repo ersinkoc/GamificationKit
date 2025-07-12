@@ -11,3 +11,5 @@ export { MemoryStorage } from './src/storage/MemoryStorage.js';
 export { RedisStorage } from './src/storage/RedisStorage.js';
 export { MongoStorage } from './src/storage/MongoStorage.js';
 export { PostgresStorage } from './src/storage/PostgresStorage.js';
+
+export { gamificationRoutes } from './src/middleware/routes.js';
