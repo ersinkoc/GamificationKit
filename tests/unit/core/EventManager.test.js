@@ -306,8 +306,8 @@ describe('EventManager', () => {
       const duration = Date.now() - start;
 
       expect(duration).toBeLessThan(200);
-      // Handler gets called twice per emitAsync - once in allSettled and once in super.emit
-      expect(handler).toHaveBeenCalledTimes(200);
+      // Handler gets called once per emitAsync
+      expect(handler).toHaveBeenCalledTimes(100);
     });
   });
 });

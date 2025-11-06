@@ -36,8 +36,8 @@ export class EventManager extends EventEmitter {
     const allListeners = [...listeners, ...wildcardListeners];
 
     const results = await Promise.allSettled(
-      allListeners.map(listener => 
-        Promise.resolve(listener(eventData))
+      allListeners.map(listener =>
+        Promise.resolve().then(() => listener(eventData))
       )
     );
 
@@ -48,8 +48,6 @@ export class EventManager extends EventEmitter {
     if (errors.length > 0) {
       this.logger.error(`Event ${eventName} had ${errors.length} handler errors`, { errors });
     }
-
-    super.emit(eventName, eventData);
 
     return {
       eventId: eventData.id,
