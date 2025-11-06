@@ -451,19 +451,30 @@ export class StreakModule extends BaseModule {
     const results = await this.storage.zrevrange(key, 0, limit - 1, { withScores: true });
     
     const users = [];
-    
+
     // Handle different storage implementations
     if (Array.isArray(results)) {
-      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
-      for (let i = 0; i < results.length; i += 2) {
-        const userId = results[i];
-        const score = parseInt(results[i + 1]);
-        
-        users.push({
-          rank: (i / 2) + 1,
-          userId,
-          streak: score
-        });
+      if (results.length > 0 && typeof results[0] === 'object' && 'member' in results[0]) {
+        // Handle array of objects format [{member, score}, ...]
+        for (let i = 0; i < results.length; i++) {
+          users.push({
+            rank: i + 1,
+            userId: results[i].member,
+            streak: parseInt(results[i].score)
+          });
+        }
+      } else {
+        // Handle flat array format [userId, score, userId, score...]
+        for (let i = 0; i < results.length; i += 2) {
+          const userId = results[i];
+          const score = parseInt(results[i + 1]);
+
+          users.push({
+            rank: (i / 2) + 1,
+            userId,
+            streak: score
+          });
+        }
       }
     } else if (results && typeof results === 'object') {
       // Handle object format from some storage implementations

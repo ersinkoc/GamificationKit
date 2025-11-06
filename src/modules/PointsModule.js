@@ -76,7 +76,7 @@ export class PointsModule extends BaseModule {
     
     // Award points
     const transaction = {
-      id: `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
       type: 'award',
       points: actualPoints,
@@ -139,7 +139,7 @@ export class PointsModule extends BaseModule {
     }
     
     const transaction = {
-      id: `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
       type: 'deduct',
       points: -points,

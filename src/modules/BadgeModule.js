@@ -107,7 +107,7 @@ export class BadgeModule extends BaseModule {
     
     // Create award record
     const award = {
-      id: `award_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `award_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
       badgeId,
       badge: {

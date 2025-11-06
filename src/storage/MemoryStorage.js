@@ -202,36 +202,42 @@ export class MemoryStorage extends StorageInterface {
     return this.sortedSets.get(key).delete(member) ? 1 : 0;
   }
 
-  async zrange(key, start, stop, withScores = false) {
+  async zrange(key, start, stop, options = false) {
     if (!this.sortedSets.has(key)) return [];
-    
+
+    // Handle both boolean and options object formats
+    const withScores = typeof options === 'object' && options !== null ? options.withScores : options;
+
     const sortedSet = this.sortedSets.get(key);
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => a[1] - b[1]);
-    
+
     const actualStart = start < 0 ? entries.length + start : start;
     const actualStop = stop < 0 ? entries.length + stop + 1 : stop + 1;
-    
+
     const result = entries.slice(actualStart, actualStop);
-    
+
     if (withScores) {
       return result.map(([member, score]) => ({ member, score }));
     }
     return result.map(([member]) => member);
   }
 
-  async zrevrange(key, start, stop, withScores = false) {
+  async zrevrange(key, start, stop, options = false) {
     if (!this.sortedSets.has(key)) return [];
-    
+
+    // Handle both boolean and options object formats
+    const withScores = typeof options === 'object' && options !== null ? options.withScores : options;
+
     const sortedSet = this.sortedSets.get(key);
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => b[1] - a[1]);
-    
+
     const actualStart = start < 0 ? entries.length + start : start;
     const actualStop = stop < 0 ? entries.length + stop + 1 : stop + 1;
-    
+
     const result = entries.slice(actualStart, actualStop);
-    
+
     if (withScores) {
       return result.map(([member, score]) => ({ member, score }));
     }
@@ -270,16 +276,20 @@ export class MemoryStorage extends StorageInterface {
 
   async zcount(key, min, max) {
     if (!this.sortedSets.has(key)) return 0;
-    
+
     const sortedSet = this.sortedSets.get(key);
     let count = 0;
-    
+
+    // Handle special Redis values '-inf' and '+inf'
+    const minValue = min === '-inf' ? -Infinity : Number(min);
+    const maxValue = max === '+inf' ? Infinity : Number(max);
+
     for (const score of sortedSet.values()) {
-      if (score >= min && score <= max) {
+      if (score >= minValue && score <= maxValue) {
         count++;
       }
     }
-    
+
     return count;
   }
 
