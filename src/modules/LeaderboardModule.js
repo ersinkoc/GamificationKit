@@ -147,7 +147,7 @@ export class LeaderboardModule extends BaseModule {
       page = 1,
       limit = this.config.defaultPageSize,
       includeUser = null,
-      nearbyCount = 5
+      nearbyCount
     } = options;
     
     const pageSize = Math.min(limit, this.config.maxPageSize);
@@ -219,7 +219,7 @@ export class LeaderboardModule extends BaseModule {
     // Include user's position if requested
     if (includeUser) {
       const userPosition = await this.getUserPosition(leaderboardId, includeUser, {
-        nearbyCount
+        nearbyCount: nearbyCount !== undefined ? nearbyCount : 0
       });
       response.userPosition = userPosition;
     }
