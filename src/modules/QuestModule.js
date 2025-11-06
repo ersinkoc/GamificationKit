@@ -165,7 +165,7 @@ export class QuestModule extends BaseModule {
     
     // Create quest assignment
     const assignment = {
-      id: `assign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `assign_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
       questId,
       questData: {

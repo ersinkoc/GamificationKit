@@ -172,16 +172,27 @@ export class LeaderboardModule extends BaseModule {
     );
     
     const entries = [];
-    
+
     // Handle different storage implementations result formats
     if (Array.isArray(results)) {
-      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
-      for (let i = 0; i < results.length; i += 2) {
-        entries.push({
-          rank: offset + (i / 2) + 1,
-          userId: results[i],
-          score: parseInt(results[i + 1])
-        });
+      if (results.length > 0 && typeof results[0] === 'object' && 'member' in results[0]) {
+        // Handle array of objects format [{member, score}, ...]
+        for (let i = 0; i < results.length; i++) {
+          entries.push({
+            rank: offset + i + 1,
+            userId: results[i].member,
+            score: parseInt(results[i].score)
+          });
+        }
+      } else {
+        // Handle flat array format [userId, score, userId, score...]
+        for (let i = 0; i < results.length; i += 2) {
+          entries.push({
+            rank: offset + (i / 2) + 1,
+            userId: results[i],
+            score: parseInt(results[i + 1])
+          });
+        }
       }
     } else if (results && typeof results === 'object') {
       // Handle object format from some storage implementations
@@ -256,13 +267,29 @@ export class LeaderboardModule extends BaseModule {
       );
       
       position.nearby = [];
-      for (let i = 0; i < nearby.length; i += 2) {
-        if (nearby[i] !== userId) {
-          position.nearby.push({
-            rank: start + (i / 2) + 1,
-            userId: nearby[i],
-            score: nearby[i + 1]
-          });
+
+      // Handle different storage result formats
+      if (nearby.length > 0 && typeof nearby[0] === 'object' && 'member' in nearby[0]) {
+        // Handle array of objects format [{member, score}, ...]
+        for (let i = 0; i < nearby.length; i++) {
+          if (nearby[i].member !== userId) {
+            position.nearby.push({
+              rank: start + i + 1,
+              userId: nearby[i].member,
+              score: nearby[i].score
+            });
+          }
+        }
+      } else {
+        // Handle flat array format [userId, score, userId, score...]
+        for (let i = 0; i < nearby.length; i += 2) {
+          if (nearby[i] !== userId) {
+            position.nearby.push({
+              rank: start + (i / 2) + 1,
+              userId: nearby[i],
+              score: nearby[i + 1]
+            });
+          }
         }
       }
     }
