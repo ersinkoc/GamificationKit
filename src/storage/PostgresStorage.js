@@ -6,6 +6,7 @@ export class PostgresStorage extends StorageInterface {
     this.client = null;
     this.pg = null;
     this.tablePrefix = options.tablePrefix || 'gk_';
+    this.cleanupInterval = null; // Fix BUG-025: Store interval reference
   }
 
   async connect() {
@@ -84,7 +85,12 @@ export class PostgresStorage extends StorageInterface {
   }
 
   startCleanupJob() {
-    setInterval(async () => {
+    // Fix BUG-025: Store interval reference and prevent multiple intervals
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+
+    this.cleanupInterval = setInterval(async () => {
       try {
         await this.client.query(
           `DELETE FROM ${this.tablePrefix}keyvalue WHERE expires_at < NOW()`
@@ -96,6 +102,12 @@ export class PostgresStorage extends StorageInterface {
   }
 
   async disconnect() {
+    // Fix BUG-025: Clear cleanup interval on disconnect
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
     if (this.client) {
       await this.client.end();
       this.connected = false;
@@ -114,16 +126,25 @@ export class PostgresStorage extends StorageInterface {
   }
 
   async set(key, value, ttl) {
-    const expires_at = ttl ? `NOW() + INTERVAL '${ttl} seconds'` : 'NULL';
-    
-    await this.client.query(
-      `INSERT INTO ${this.tablePrefix}keyvalue (key, value, expires_at, updated_at) 
-       VALUES ($1, $2, ${expires_at}, NOW())
-       ON CONFLICT (key) 
-       DO UPDATE SET value = $2, expires_at = ${expires_at}, updated_at = NOW()`,
-      [key, JSON.stringify(value)]
-    );
-    
+    // Fix BUG-001: SQL Injection - use parameterized query for TTL
+    if (ttl) {
+      await this.client.query(
+        `INSERT INTO ${this.tablePrefix}keyvalue (key, value, expires_at, updated_at)
+         VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL, NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = $2, expires_at = NOW() + ($3 || ' seconds')::INTERVAL, updated_at = NOW()`,
+        [key, JSON.stringify(value), ttl.toString()]
+      );
+    } else {
+      await this.client.query(
+        `INSERT INTO ${this.tablePrefix}keyvalue (key, value, expires_at, updated_at)
+         VALUES ($1, $2, NULL, NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = $2, expires_at = NULL, updated_at = NOW()`,
+        [key, JSON.stringify(value)]
+      );
+    }
+
     return true;
   }
 
@@ -582,13 +603,14 @@ export class PostgresStorage extends StorageInterface {
   }
 
   async expire(key, seconds) {
+    // Fix BUG-002: SQL Injection - use parameterized query for seconds
     const result = await this.client.query(
-      `UPDATE ${this.tablePrefix}keyvalue 
-       SET expires_at = NOW() + INTERVAL '${seconds} seconds'
+      `UPDATE ${this.tablePrefix}keyvalue
+       SET expires_at = NOW() + ($2 || ' seconds')::INTERVAL
        WHERE key = $1`,
-      [key]
+      [key, seconds.toString()]
     );
-    
+
     return result.rowCount > 0;
   }
 
@@ -608,17 +630,27 @@ export class PostgresStorage extends StorageInterface {
 
   async transaction(operations) {
     const client = await this.client.connect();
-    
+
     try {
       await client.query('BEGIN');
-      
+
+      // Fix BUG-008: Temporarily replace this.client with transaction client
+      // so all operations execute within the transaction
+      const originalClient = this.client;
+      this.client = client;
+
       const results = [];
-      for (const op of operations) {
-        const { method, args } = op;
-        const result = await this[method](...args);
-        results.push(result);
+      try {
+        for (const op of operations) {
+          const { method, args } = op;
+          const result = await this[method](...args);
+          results.push(result);
+        }
+      } finally {
+        // Restore original client
+        this.client = originalClient;
       }
-      
+
       await client.query('COMMIT');
       return results;
     } catch (error) {

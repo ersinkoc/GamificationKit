@@ -148,28 +148,29 @@ export class PointsModule extends BaseModule {
     };
     
     // Update user points
-    const newTotal = Number(await this.storage.hincrby(
+    let newTotal = Number(await this.storage.hincrby(
       this.getStorageKey('users'),
       userId,
       -points
     ));
-    
-    // Ensure minimum points
+
+    // Fix BUG-012: Ensure minimum points BEFORE updating leaderboards
     if (newTotal < this.config.minimumPoints) {
       await this.storage.hset(
         this.getStorageKey('users'),
         userId,
         this.config.minimumPoints
       );
+      newTotal = this.config.minimumPoints;
     }
-    
+
     // Record transaction
     await this.storage.lpush(
       this.getStorageKey(`transactions:${userId}`),
       JSON.stringify(transaction)
     );
-    
-    // Update leaderboards
+
+    // Update leaderboards with corrected total
     await this.updateLeaderboards(userId, newTotal);
     
     // Emit event
@@ -314,16 +315,21 @@ export class PointsModule extends BaseModule {
   }
 
   async updateLeaderboards(userId, totalPoints) {
-    const periods = ['all-time', 'monthly', 'weekly', 'daily'];
-    
+    // Fix BUG-011: Use period-specific points for periodic leaderboards
+    // Update all-time leaderboard with total points
+    await this.storage.zadd(this.getLeaderboardKey('all-time'), totalPoints, userId);
+
+    // Update period-specific leaderboards with period-specific points
+    const periods = ['daily', 'weekly', 'monthly'];
     for (const period of periods) {
-      const key = this.getLeaderboardKey(period);
-      await this.storage.zadd(key, totalPoints, userId);
-      
-      if (period !== 'all-time') {
-        const ttl = this.getPeriodTTL(period, new Date());
-        await this.storage.expire(key, ttl);
-      }
+      const periodKey = this.getPeriodKey(userId, period);
+      const periodPoints = Number(await this.storage.get(periodKey)) || 0;
+      const leaderboardKey = this.getLeaderboardKey(period);
+
+      await this.storage.zadd(leaderboardKey, periodPoints, userId);
+
+      const ttl = this.getPeriodTTL(period, new Date());
+      await this.storage.expire(leaderboardKey, ttl);
     }
   }
 

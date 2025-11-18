@@ -12,13 +12,16 @@ export class APIServer {
     this.prefix = options.prefix || '/gamification';
     this.corsEnabled = options.cors !== false;
     this.apiKey = options.apiKey;
+    this.adminKeys = new Set(options.adminKeys || []); // Fix BUG-003/004: Admin authentication
     this.server = null;
     this.routes = new Map();
     this.rateLimiter = new Map();
     this.rateLimitOptions = options.rateLimit || { windowMs: 60000, max: 100 };
+    this.rateLimiterCleanupInterval = null; // Fix BUG-022: Store cleanup interval
     this.websocketClients = new Set();
-    
+
     this.setupRoutes();
+    this.startRateLimiterCleanup(); // Fix BUG-022: Periodic cleanup
   }
 
   setupRoutes() {
@@ -69,6 +72,12 @@ export class APIServer {
       if (!this.server) {
         resolve();
         return;
+      }
+
+      // Fix BUG-022: Clear rate limiter cleanup interval
+      if (this.rateLimiterCleanupInterval) {
+        clearInterval(this.rateLimiterCleanupInterval);
+        this.rateLimiterCleanupInterval = null;
       }
 
       for (const ws of this.websocketClients) {
@@ -177,19 +186,27 @@ export class APIServer {
   async parseBody(req) {
     return new Promise((resolve, reject) => {
       let body = '';
-      
+      const maxSize = 1024 * 1024; // Fix BUG-006: 1MB limit to prevent DoS
+      let size = 0;
+
       req.on('data', chunk => {
+        size += chunk.length;
+        if (size > maxSize) {
+          req.destroy();
+          reject(new Error('Request body too large'));
+          return;
+        }
         body += chunk.toString();
       });
-      
+
       req.on('end', () => {
         try {
           resolve(JSON.parse(body));
         } catch (error) {
-          resolve(null);
+          reject(new Error('Invalid JSON'));
         }
       });
-      
+
       req.on('error', reject);
     });
   }
@@ -212,15 +229,38 @@ export class APIServer {
 
     const requests = this.rateLimiter.get(ip);
     const recentRequests = requests.filter(time => time > windowStart);
-    
+
     if (recentRequests.length >= this.rateLimitOptions.max) {
       return false;
     }
 
     recentRequests.push(now);
     this.rateLimiter.set(ip, recentRequests);
-    
+
     return true;
+  }
+
+  // Fix BUG-022: Periodic cleanup of old rate limiter entries
+  startRateLimiterCleanup() {
+    this.rateLimiterCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const windowStart = now - this.rateLimitOptions.windowMs;
+
+      for (const [ip, requests] of this.rateLimiter.entries()) {
+        const recentRequests = requests.filter(time => time > windowStart);
+        if (recentRequests.length === 0) {
+          this.rateLimiter.delete(ip);
+        } else {
+          this.rateLimiter.set(ip, recentRequests);
+        }
+      }
+    }, this.rateLimitOptions.windowMs);
+  }
+
+  // Helper method to check if request has admin privileges
+  isAdminRequest(req) {
+    const apiKey = req.headers['x-api-key'];
+    return this.adminKeys.size > 0 && this.adminKeys.has(apiKey);
   }
 
   sendResponse(res, data, statusCode = 200) {
@@ -462,7 +502,18 @@ export class APIServer {
 
   async handleResetUser(context) {
     try {
+      // Fix BUG-003: Require admin authorization for user reset
+      if (!this.isAdminRequest(context.req)) {
+        this.sendError(context.res, 403, 'Admin access required');
+        return;
+      }
+
       const { userId } = context.params;
+
+      // Log admin action for audit trail
+      const apiKey = context.req.headers['x-api-key'];
+      this.logger.warn(`Admin action: User reset requested`, { userId, apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'none' });
+
       const result = await this.gamificationKit.resetUser(userId);
       this.sendResponse(context.res, result);
     } catch (error) {
@@ -472,20 +523,36 @@ export class APIServer {
 
   async handleManualAward(context) {
     try {
+      // Fix BUG-004: Require admin authorization for manual awards
+      if (!this.isAdminRequest(context.req)) {
+        this.sendError(context.res, 403, 'Admin access required');
+        return;
+      }
+
       if (!context.body) {
         this.sendError(context.res, 400, 'Invalid request body');
         return;
       }
 
       const { userId, type, value, reason } = context.body;
-      
+
       if (!userId || !type || value === undefined) {
         this.sendError(context.res, 400, 'userId, type, and value are required');
         return;
       }
 
+      // Fix BUG-019: Validate value is positive
+      if (typeof value === 'number' && value <= 0) {
+        this.sendError(context.res, 400, 'value must be greater than 0');
+        return;
+      }
+
+      // Log admin action for audit trail
+      const apiKey = context.req.headers['x-api-key'];
+      this.logger.warn(`Admin action: Manual award`, { userId, type, value, reason, apiKey: apiKey ? apiKey.substring(0, 8) + '...' : 'none' });
+
       let result;
-      
+
       switch (type) {
         case 'points':
           const pointsModule = this.gamificationKit.modules.get('points');
@@ -493,21 +560,21 @@ export class APIServer {
             result = await pointsModule.award(userId, value, reason);
           }
           break;
-          
+
         case 'badge':
           const badgeModule = this.gamificationKit.modules.get('badges');
           if (badgeModule) {
             result = await badgeModule.award(userId, value);
           }
           break;
-          
+
         case 'xp':
           const levelModule = this.gamificationKit.modules.get('levels');
           if (levelModule) {
             result = await levelModule.addXP(userId, value, reason);
           }
           break;
-          
+
         default:
           this.sendError(context.res, 400, `Unknown award type: ${type}`);
           return;
