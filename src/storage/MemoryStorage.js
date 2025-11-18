@@ -125,7 +125,14 @@ export class MemoryStorage extends StorageInterface {
   async increment(key, amount = 1) {
     const current = await this.get(key) || 0;
     const newValue = Number(current) + amount;
+
+    // Fix BUG-015: Preserve TTL when incrementing
+    const existingExpiry = this.expires.get(key);
     await this.set(key, newValue);
+    if (existingExpiry) {
+      this.expires.set(key, existingExpiry);
+    }
+
     return newValue;
   }
 
@@ -316,8 +323,8 @@ export class MemoryStorage extends StorageInterface {
       this.lists.set(key, []);
     }
     const list = this.lists.get(key);
-    // Push values to the left (beginning) of the list
-    list.unshift(...values.reverse());
+    // Fix BUG-009: Clone array before reversing to avoid mutating input
+    list.unshift(...[...values].reverse());
     return list.length;
   }
 
@@ -333,12 +340,16 @@ export class MemoryStorage extends StorageInterface {
 
   async lpop(key) {
     if (!this.lists.has(key)) return null;
-    return this.lists.get(key).shift() || null;
+    // Fix BUG-010: Check undefined instead of falsy to preserve 0, false, ""
+    const value = this.lists.get(key).shift();
+    return value !== undefined ? value : null;
   }
 
   async rpop(key) {
     if (!this.lists.has(key)) return null;
-    return this.lists.get(key).pop() || null;
+    // Fix BUG-010: Check undefined instead of falsy to preserve 0, false, ""
+    const value = this.lists.get(key).pop();
+    return value !== undefined ? value : null;
   }
 
   async lrange(key, start, stop) {
