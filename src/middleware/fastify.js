@@ -1,9 +1,11 @@
-export async function fastifyPlugin(fastify, options) {
-  const gamificationKit = options.gamificationKit;
-  
-  if (!gamificationKit) {
-    throw new Error('gamificationKit instance is required');
-  }
+// Fix BUG-001: Factory function to wrap fastify plugin with context
+export function fastifyPlugin(gamificationKitInstance) {
+  return async function plugin(fastify, options) {
+    const gamificationKit = gamificationKitInstance || options.gamificationKit;
+
+    if (!gamificationKit) {
+      throw new Error('gamificationKit instance is required');
+    }
   
   // Decorate request with gamification helpers
   fastify.decorateRequest('gamification', null);
@@ -392,7 +394,8 @@ export async function fastifyPlugin(fastify, options) {
       });
     });
   }
-}
+  };  // End of plugin function
+}  // End of factory function
 
 // Export as default for easier import
 export default fastifyPlugin;

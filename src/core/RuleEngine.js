@@ -28,7 +28,23 @@ export class RuleEngine {
       'not_contains': (a, b) => !String(a).includes(b),
       'starts_with': (a, b) => String(a).startsWith(b),
       'ends_with': (a, b) => String(a).endsWith(b),
-      'matches': (a, b) => new RegExp(b).test(String(a)),
+      'matches': (a, b) => {
+        // Fix BUG-002: Protect against ReDoS by validating regex pattern
+        // Limit pattern length and complexity to prevent catastrophic backtracking
+        if (typeof b !== 'string' || b.length > 100) {
+          return false;
+        }
+        // Check for dangerous patterns that can cause ReDoS
+        const dangerousPatterns = /(\+\+|\*\*|\{\d+,\d*\}\+|\{\d+,\d*\}\*|(\.\*){3,}|\([^)]*\+\)[+*])/;
+        if (dangerousPatterns.test(b)) {
+          return false;
+        }
+        try {
+          return new RegExp(b).test(String(a));
+        } catch (e) {
+          return false; // Invalid regex
+        }
+      },
       'between': (a, b) => Array.isArray(b) && b.length === 2 && a >= b[0] && a <= b[1]
     };
   }
@@ -48,7 +64,13 @@ export class RuleEngine {
       uppercase: (str) => String(str).toUpperCase(),
       trim: (str) => String(str).trim(),
       random: () => Math.random(),
-      randomInt: (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
+      randomInt: (min, max) => {
+        // Fix BUG-003: Validate min <= max
+        if (min > max) {
+          [min, max] = [max, min]; // Swap if min > max
+        }
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+      }
     };
   }
 

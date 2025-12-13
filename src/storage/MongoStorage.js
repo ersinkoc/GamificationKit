@@ -187,7 +187,12 @@ export class MongoStorage extends StorageInterface {
   }
 
   async keys(pattern) {
-    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+    // Fix BUG-027: Escape regex special characters before converting wildcards
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special regex chars
+      .replace(/\*/g, '.*')  // Then convert wildcards
+      .replace(/\?/g, '.');
+    const regex = new RegExp('^' + escaped + '$');
     const collections = [
       `${this.collectionPrefix}keyvalue`,
       `${this.collectionPrefix}sortedsets`,
@@ -222,12 +227,14 @@ export class MongoStorage extends StorageInterface {
 
   async zadd(key, score, member) {
     const collection = this.db.collection(`${this.collectionPrefix}sortedsets`);
+    // Fix BUG-038: Return count instead of boolean to match MemoryStorage
+    const doc = await collection.findOne({ key, member });
     await collection.replaceOne(
       { key, member },
       { key, member, score },
       { upsert: true }
     );
-    return true;
+    return doc ? 0 : 1;  // Return 1 if new, 0 if updated
   }
 
   async zrem(key, member) {
@@ -247,8 +254,9 @@ export class MongoStorage extends StorageInterface {
     const actualStop = stop < 0 ? docs.length + stop + 1 : stop + 1;
     const sliced = docs.slice(actualStart, actualStop);
     
+    // Fix BUG-028: Return array of objects format like MemoryStorage
     if (options.withScores) {
-      return sliced.flatMap(d => [d.member, d.score]);
+      return sliced.map(d => ({ member: d.member, score: d.score }));
     }
     return sliced.map(d => d.member);
   }
@@ -264,8 +272,9 @@ export class MongoStorage extends StorageInterface {
     const actualStop = stop < 0 ? docs.length + stop + 1 : stop + 1;
     const sliced = docs.slice(actualStart, actualStop);
     
+    // Fix BUG-028: Return array of objects format like MemoryStorage
     if (options.withScores) {
-      return sliced.flatMap(d => [d.member, d.score]);
+      return sliced.map(d => ({ member: d.member, score: d.score }));
     }
     return sliced.map(d => d.member);
   }
@@ -300,9 +309,14 @@ export class MongoStorage extends StorageInterface {
 
   async zcount(key, min, max) {
     const collection = this.db.collection(`${this.collectionPrefix}sortedsets`);
+
+    // Fix BUG-039: Handle special Redis values '-inf' and '+inf'
+    const minValue = min === '-inf' ? -Infinity : Number(min);
+    const maxValue = max === '+inf' ? Infinity : Number(max);
+
     return await collection.countDocuments({
       key,
-      score: { $gte: min, $lte: max }
+      score: { $gte: minValue, $lte: maxValue }
     });
   }
 
@@ -334,8 +348,9 @@ export class MongoStorage extends StorageInterface {
       { upsert: true }
     );
     
+    // Fix BUG-035: Add null check for doc
     const doc = await collection.findOne({ key });
-    return doc.values.length;
+    return doc ? doc.values.length : 0;
   }
 
   async rpush(key, ...values) {
@@ -349,8 +364,9 @@ export class MongoStorage extends StorageInterface {
       { upsert: true }
     );
     
+    // Fix BUG-036: Add null check for doc
     const doc = await collection.findOne({ key });
-    return doc.values.length;
+    return doc ? doc.values.length : 0;
   }
 
   async lpop(key) {

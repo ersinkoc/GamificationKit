@@ -380,15 +380,28 @@ export class LeaderboardModule extends BaseModule {
         archivedAt: Date.now(),
         entries: []
       };
-      
-      for (let i = 0; i < entries.length; i += 2) {
-        archive.entries.push({
-          rank: (i / 2) + 1,
-          userId: entries[i],
-          score: entries[i + 1]
-        });
+
+      // Fix BUG-007: Handle different storage result formats for archive
+      if (typeof entries[0] === 'object' && 'member' in entries[0]) {
+        // Handle array of objects format [{member, score}, ...]
+        for (let i = 0; i < entries.length; i++) {
+          archive.entries.push({
+            rank: i + 1,
+            userId: entries[i].member,
+            score: parseInt(entries[i].score)
+          });
+        }
+      } else {
+        // Handle flat array format [userId, score, userId, score...]
+        for (let i = 0; i < entries.length; i += 2) {
+          archive.entries.push({
+            rank: (i / 2) + 1,
+            userId: entries[i],
+            score: parseInt(entries[i + 1])
+          });
+        }
       }
-      
+
       await this.storage.set(archiveKey, archive);
       
       // Store archive reference

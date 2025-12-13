@@ -67,10 +67,14 @@ export class WebhookManager {
       const matches = webhook.events.some(pattern => {
         if (pattern === '*') return true;
         if (pattern === eventName) return true;
-        
-        const regex = new RegExp(
-          '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$'
-        );
+
+        // Fix BUG-007: Escape regex special characters before converting wildcards
+        // This prevents regex injection and ensures patterns like 'user.points' match literally
+        const escaped = pattern
+          .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special regex chars
+          .replace(/\*/g, '.*')  // Then convert wildcards
+          .replace(/\?/g, '.');
+        const regex = new RegExp('^' + escaped + '$');
         return regex.test(eventName);
       });
       

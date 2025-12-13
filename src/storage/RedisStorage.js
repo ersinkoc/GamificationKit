@@ -112,8 +112,9 @@ export class RedisStorage extends StorageInterface {
   }
 
   async zadd(key, score, member) {
+    // Fix BUG-037: Return count instead of boolean to match MemoryStorage
     const result = await this.client.zAdd(key, { score, value: member });
-    return result > 0;
+    return result;  // Return actual count of elements added
   }
 
   async zrem(key, member) {

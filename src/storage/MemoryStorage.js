@@ -156,7 +156,13 @@ export class MemoryStorage extends StorageInterface {
   }
 
   async keys(pattern) {
-    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+    // Fix BUG-026: Escape regex special characters before converting wildcards
+    // This prevents regex injection and ensures patterns like 'user.name' match literally
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')  // Escape special regex chars
+      .replace(/\*/g, '.*')  // Then convert wildcards
+      .replace(/\?/g, '.');
+    const regex = new RegExp('^' + escaped + '$');
     const allKeys = new Set([
       ...this.data.keys(),
       ...this.sortedSets.keys(),

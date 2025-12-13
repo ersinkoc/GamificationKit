@@ -501,7 +501,8 @@ export class LevelModule extends BaseModule {
       userId
     );
     
-    if (userMultiplier && userMultiplier.expires > Date.now()) {
+    // Fix BUG-011: Add defensive check for expires property
+    if (userMultiplier && userMultiplier.expires && userMultiplier.expires > Date.now()) {
       multiplier *= userMultiplier.value;
     }
     
