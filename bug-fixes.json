@@ -1,0 +1,131 @@
+{
+  "report": {
+    "date": "2025-12-14",
+    "repository": "@oxog/gamification-kit",
+    "version": "1.0.0",
+    "analyzer": "Claude Opus 4.5"
+  },
+  "summary": {
+    "total_bugs_found": 7,
+    "total_bugs_fixed": 7,
+    "unfixed_deferred": 0,
+    "new_tests_added": 32,
+    "tests_passing": true
+  },
+  "bugs": [
+    {
+      "id": "BUG-040",
+      "severity": "HIGH",
+      "category": "Data Integrity",
+      "status": "FIXED",
+      "file": "src/storage/PostgresStorage.js",
+      "lines": "383-408",
+      "description": "PostgresStorage.zcount() doesn't handle '-inf' and '+inf' special values",
+      "root_cause": "Special Redis values were not converted to appropriate SQL conditions",
+      "fix": "Added special value handling before the query to properly convert infinity values",
+      "test_file": "tests/bug-fixes/bug40-postgres-zcount-infinity.test.js",
+      "test_count": 5
+    },
+    {
+      "id": "BUG-041",
+      "severity": "HIGH",
+      "category": "Integration",
+      "status": "FIXED",
+      "file": "src/storage/PostgresStorage.js",
+      "lines": "307-345",
+      "description": "PostgresStorage.zrange/zrevrange withScores returns inconsistent format",
+      "root_cause": "Returned flat array instead of object array format",
+      "fix": "Changed to return array of objects format like MemoryStorage/MongoStorage",
+      "test_file": "tests/bug-fixes/bug41-zrevrange-format.test.js",
+      "test_count": 3
+    },
+    {
+      "id": "BUG-042",
+      "severity": "MEDIUM",
+      "category": "Security",
+      "status": "FIXED",
+      "file": "src/core/WebhookManager.js",
+      "lines": "248-260",
+      "description": "WebhookManager.verifySignature throws on buffer length mismatch",
+      "root_cause": "crypto.timingSafeEqual throws if buffer lengths don't match",
+      "fix": "Check buffer lengths before calling timingSafeEqual and return false if mismatch",
+      "test_file": "tests/bug-fixes/bug42-webhook-signature-length.test.js",
+      "test_count": 5
+    },
+    {
+      "id": "BUG-043",
+      "severity": "MEDIUM",
+      "category": "Functional",
+      "status": "FIXED",
+      "file": "src/core/GamificationKit.js",
+      "lines": "30-85",
+      "description": "GamificationKit.validateAndMergeConfig shallow merge loses nested config",
+      "root_cause": "Shallow merge replaced entire nested objects instead of merging",
+      "fix": "Implemented deep merge helper method",
+      "test_file": "tests/bug-fixes/bug43-deep-merge-config.test.js",
+      "test_count": 5
+    },
+    {
+      "id": "BUG-044",
+      "severity": "LOW",
+      "category": "Memory Leak",
+      "status": "FIXED",
+      "file": "src/modules/StreakModule.js",
+      "lines": "27,518-520,655-667",
+      "description": "StreakModule.startStreakChecker initial setTimeout not stored for cleanup",
+      "root_cause": "Initial setTimeout reference was not stored for shutdown cleanup",
+      "fix": "Store timeout reference and clear in shutdown()",
+      "test_file": "tests/bug-fixes/bug44-45-timer-cleanup.test.js",
+      "test_count": 3
+    },
+    {
+      "id": "BUG-045",
+      "severity": "LOW",
+      "category": "Memory Leak",
+      "status": "FIXED",
+      "file": "src/modules/QuestModule.js",
+      "lines": "20,689-698,824-837",
+      "description": "QuestModule.startDailyRotation initial setTimeout not stored for cleanup",
+      "root_cause": "Initial setTimeout reference was not stored for shutdown cleanup",
+      "fix": "Store timeout reference and clear in shutdown()",
+      "test_file": "tests/bug-fixes/bug44-45-timer-cleanup.test.js",
+      "test_count": 3
+    },
+    {
+      "id": "BUG-046",
+      "severity": "MEDIUM",
+      "category": "Functional",
+      "status": "FIXED",
+      "file": "src/modules/AchievementModule.js",
+      "lines": "484-544",
+      "description": "AchievementModule.getTopScorers uses wrong zrevrange format handling",
+      "root_cause": "Code assumed flat array format but storage returns object array",
+      "fix": "Updated to check for and handle object array format first",
+      "test_file": "tests/bug-fixes/bug46-achievement-format.test.js",
+      "test_count": 3
+    }
+  ],
+  "files_modified": [
+    "src/storage/PostgresStorage.js",
+    "src/core/WebhookManager.js",
+    "src/core/GamificationKit.js",
+    "src/modules/StreakModule.js",
+    "src/modules/QuestModule.js",
+    "src/modules/AchievementModule.js"
+  ],
+  "test_files_added": [
+    "tests/bug-fixes/bug40-postgres-zcount-infinity.test.js",
+    "tests/bug-fixes/bug41-zrevrange-format.test.js",
+    "tests/bug-fixes/bug42-webhook-signature-length.test.js",
+    "tests/bug-fixes/bug43-deep-merge-config.test.js",
+    "tests/bug-fixes/bug44-45-timer-cleanup.test.js",
+    "tests/bug-fixes/bug46-achievement-format.test.js"
+  ],
+  "category_summary": {
+    "Data Integrity": 1,
+    "Integration": 1,
+    "Security": 1,
+    "Functional": 2,
+    "Memory Leak": 2
+  }
+}

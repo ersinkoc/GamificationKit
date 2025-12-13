@@ -22,8 +22,9 @@ export class StreakModule extends BaseModule {
     
     // Merge config early for constructor tests
     this.config = this.mergeDeep(this.defaultConfig, options);
-    
+
     this.checkInterval = null;
+    this.initialCheckTimeout = null; // Fix BUG-044: Store initial timeout reference
   }
 
   mergeDeep(target, source) {
@@ -513,9 +514,10 @@ export class StreakModule extends BaseModule {
     this.checkInterval = setInterval(async () => {
       await this.checkExpiredStreaks();
     }, 60 * 60 * 1000);
-    
+
+    // Fix BUG-044: Store initial timeout reference for cleanup
     // Run initial check after 1 minute
-    setTimeout(() => this.checkExpiredStreaks(), 60000);
+    this.initialCheckTimeout = setTimeout(() => this.checkExpiredStreaks(), 60000);
   }
 
   async checkExpiredStreaks() {
@@ -651,10 +653,17 @@ export class StreakModule extends BaseModule {
   }
 
   async shutdown() {
+    // Fix BUG-044: Clear initial timeout on shutdown
+    if (this.initialCheckTimeout) {
+      clearTimeout(this.initialCheckTimeout);
+      this.initialCheckTimeout = null;
+    }
+
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
+      this.checkInterval = null;
     }
-    
+
     await super.shutdown();
   }
 }

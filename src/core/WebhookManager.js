@@ -246,11 +246,17 @@ export class WebhookManager {
   }
 
   verifySignature(payload, signature) {
+    // Fix BUG-042: Check buffer lengths before timingSafeEqual to avoid throwing
+    // crypto.timingSafeEqual throws if buffer lengths don't match
     const expectedSignature = this.generateSignature(payload);
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (signatureBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
   }
 
   clearQueue() {

@@ -488,24 +488,41 @@ export class AchievementModule extends BaseModule {
       limit - 1,
       { withScores: true }
     );
-    
+
     const users = [];
-    
-    // Handle different storage implementations result formats
+
+    // Fix BUG-046: Handle correct storage result format [{member, score}, ...]
     if (Array.isArray(results)) {
-      // Handle Redis/MemoryStorage result format [userId, score, userId, score...]
-      for (let i = 0; i < results.length; i += 2) {
-        const userId = results[i];
-        const score = parseInt(results[i + 1]);
-        
-        const achievements = await this.getUserAchievements(userId);
-        users.push({
-          rank: (i / 2) + 1,
-          userId,
-          score,
-          totalAchievements: achievements.length,
-          tierBreakdown: this.getTierBreakdown(achievements)
-        });
+      if (results.length > 0 && typeof results[0] === 'object' && 'member' in results[0]) {
+        // Handle array of objects format [{member, score}, ...] from all storage adapters
+        for (let i = 0; i < results.length; i++) {
+          const userId = results[i].member;
+          const score = parseInt(results[i].score);
+
+          const achievements = await this.getUserAchievements(userId);
+          users.push({
+            rank: i + 1,
+            userId,
+            score,
+            totalAchievements: achievements.length,
+            tierBreakdown: this.getTierBreakdown(achievements)
+          });
+        }
+      } else {
+        // Handle flat array format [userId, score, userId, score...] for backwards compatibility
+        for (let i = 0; i < results.length; i += 2) {
+          const userId = results[i];
+          const score = parseInt(results[i + 1]);
+
+          const achievements = await this.getUserAchievements(userId);
+          users.push({
+            rank: (i / 2) + 1,
+            userId,
+            score,
+            totalAchievements: achievements.length,
+            tierBreakdown: this.getTierBreakdown(achievements)
+          });
+        }
       }
     } else if (results && typeof results === 'object') {
       // Handle object format from some storage implementations
@@ -522,7 +539,7 @@ export class AchievementModule extends BaseModule {
         rank++;
       }
     }
-    
+
     return users;
   }
 

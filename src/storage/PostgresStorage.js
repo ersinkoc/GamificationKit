@@ -306,38 +306,40 @@ export class PostgresStorage extends StorageInterface {
 
   async zrange(key, start, stop, options = {}) {
     const result = await this.client.query(
-      `SELECT member, score FROM ${this.tablePrefix}sortedsets 
-       WHERE key = $1 
+      `SELECT member, score FROM ${this.tablePrefix}sortedsets
+       WHERE key = $1
        ORDER BY score ASC, member ASC`,
       [key]
     );
-    
+
     const rows = result.rows;
     const actualStart = start < 0 ? rows.length + start : start;
     const actualStop = stop < 0 ? rows.length + stop + 1 : stop + 1;
     const sliced = rows.slice(actualStart, actualStop);
-    
+
+    // Fix BUG-041: Return array of objects format like MemoryStorage/MongoStorage
     if (options.withScores) {
-      return sliced.flatMap(r => [r.member, r.score]);
+      return sliced.map(r => ({ member: r.member, score: r.score }));
     }
     return sliced.map(r => r.member);
   }
 
   async zrevrange(key, start, stop, options = {}) {
     const result = await this.client.query(
-      `SELECT member, score FROM ${this.tablePrefix}sortedsets 
-       WHERE key = $1 
+      `SELECT member, score FROM ${this.tablePrefix}sortedsets
+       WHERE key = $1
        ORDER BY score DESC, member DESC`,
       [key]
     );
-    
+
     const rows = result.rows;
     const actualStart = start < 0 ? rows.length + start : start;
     const actualStop = stop < 0 ? rows.length + stop + 1 : stop + 1;
     const sliced = rows.slice(actualStart, actualStop);
-    
+
+    // Fix BUG-041: Return array of objects format like MemoryStorage/MongoStorage
     if (options.withScores) {
-      return sliced.flatMap(r => [r.member, r.score]);
+      return sliced.map(r => ({ member: r.member, score: r.score }));
     }
     return sliced.map(r => r.member);
   }
@@ -381,12 +383,29 @@ export class PostgresStorage extends StorageInterface {
   }
 
   async zcount(key, min, max) {
-    const result = await this.client.query(
-      `SELECT COUNT(*) FROM ${this.tablePrefix}sortedsets 
-       WHERE key = $1 AND score >= $2 AND score <= $3`,
-      [key, min, max]
-    );
-    
+    // Fix BUG-040: Handle special Redis values '-inf' and '+inf'
+    const minValue = min === '-inf' ? -Infinity : Number(min);
+    const maxValue = max === '+inf' ? Infinity : Number(max);
+
+    // Use text comparison for infinity values since PostgreSQL doesn't support infinity in parameterized queries
+    let query;
+    let params;
+
+    if (minValue === -Infinity && maxValue === Infinity) {
+      query = `SELECT COUNT(*) FROM ${this.tablePrefix}sortedsets WHERE key = $1`;
+      params = [key];
+    } else if (minValue === -Infinity) {
+      query = `SELECT COUNT(*) FROM ${this.tablePrefix}sortedsets WHERE key = $1 AND score <= $2`;
+      params = [key, maxValue];
+    } else if (maxValue === Infinity) {
+      query = `SELECT COUNT(*) FROM ${this.tablePrefix}sortedsets WHERE key = $1 AND score >= $2`;
+      params = [key, minValue];
+    } else {
+      query = `SELECT COUNT(*) FROM ${this.tablePrefix}sortedsets WHERE key = $1 AND score >= $2 AND score <= $3`;
+      params = [key, minValue, maxValue];
+    }
+
+    const result = await this.client.query(query, params);
     return parseInt(result.rows[0].count);
   }
 

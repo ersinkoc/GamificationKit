@@ -17,6 +17,7 @@ export class QuestModule extends BaseModule {
     this.quests = new Map();
     this.questChains = new Map();
     this.rotationInterval = null;
+    this.initialRotationTimeout = null; // Fix BUG-045: Store initial timeout reference
   }
 
   async onInitialize() {
@@ -678,17 +679,18 @@ export class QuestModule extends BaseModule {
     const now = new Date();
     const nextRotation = new Date();
     nextRotation.setUTCHours(this.config.questRotationHour, 0, 0, 0);
-    
+
     if (nextRotation <= now) {
       nextRotation.setDate(nextRotation.getDate() + 1);
     }
-    
+
     const timeUntilRotation = nextRotation - now;
-    
+
+    // Fix BUG-045: Store initial timeout reference for cleanup
     // Schedule first rotation
-    setTimeout(() => {
+    this.initialRotationTimeout = setTimeout(() => {
       this.rotateDailyQuests();
-      
+
       // Schedule recurring rotations
       this.rotationInterval = setInterval(() => {
         this.rotateDailyQuests();
@@ -820,10 +822,17 @@ export class QuestModule extends BaseModule {
   }
 
   async shutdown() {
+    // Fix BUG-045: Clear initial timeout on shutdown
+    if (this.initialRotationTimeout) {
+      clearTimeout(this.initialRotationTimeout);
+      this.initialRotationTimeout = null;
+    }
+
     if (this.rotationInterval) {
       clearInterval(this.rotationInterval);
+      this.rotationInterval = null;
     }
-    
+
     await super.shutdown();
   }
 }

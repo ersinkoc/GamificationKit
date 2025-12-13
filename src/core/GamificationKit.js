@@ -65,7 +65,23 @@ export class GamificationKit {
       }
     };
 
-    return { ...defaultConfig, ...config };
+    // Fix BUG-043: Deep merge config to preserve nested default values
+    return this.mergeDeep(defaultConfig, config);
+  }
+
+  // Deep merge helper to properly merge nested objects
+  mergeDeep(target, source) {
+    const result = { ...target };
+
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.mergeDeep(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+
+    return result;
   }
 
   async initialize() {
