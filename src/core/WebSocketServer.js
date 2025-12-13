@@ -32,8 +32,9 @@ export class WebSocketServer {
         this.handleConnection(ws, req);
       });
 
-      // Subscribe to all gamification events
-      this.eventManager.on('*', (data) => {
+      // Fix BUG-008: Subscribe to all gamification events using onWildcard instead of on
+      // The on('*') only listens for literal '*' events, not all events
+      this.eventManager.onWildcard('*', (data) => {
         this.broadcastToRelevantClients(data);
       });
 
@@ -78,9 +79,14 @@ export class WebSocketServer {
     });
 
     // Handle client disconnect
+    // Fix BUG-010: Clear ping interval immediately on close to prevent memory leak
     ws.on('close', () => {
       this.logger.info(`WebSocket client disconnected: ${userId}`);
       this.clients.delete(userId);
+      if (ws.pingInterval) {
+        clearInterval(ws.pingInterval);
+        ws.pingInterval = null;
+      }
     });
 
     ws.on('error', (error) => {
@@ -88,11 +94,13 @@ export class WebSocketServer {
     });
 
     // Send ping every 30 seconds
-    const pingInterval = setInterval(() => {
+    // Fix BUG-010: Store interval reference for cleanup
+    ws.pingInterval = setInterval(() => {
       if (ws.readyState === ws.OPEN) {
         ws.ping();
       } else {
-        clearInterval(pingInterval);
+        clearInterval(ws.pingInterval);
+        ws.pingInterval = null;
       }
     }, 30000);
   }

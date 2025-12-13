@@ -17,6 +17,9 @@ export class PointsModule extends BaseModule {
     };
     
     // Don't initialize config here - it's set by BaseModule
+    // Fix BUG-001: Store timer IDs to allow cleanup
+    this.decayIntervalId = null;
+    this.decayTimeoutId = null;
   }
 
   async onInitialize() {
@@ -493,15 +496,29 @@ export class PointsModule extends BaseModule {
   }
 
   startDecayJob() {
+    // Fix BUG-001: Store timer IDs to allow proper cleanup during shutdown
     // Run decay check daily
-    setInterval(async () => {
+    this.decayIntervalId = setInterval(async () => {
       await this.processDecay();
     }, 24 * 60 * 60 * 1000);
-    
+
     // Run initial check after a delay
-    setTimeout(async () => {
+    this.decayTimeoutId = setTimeout(async () => {
       await this.processDecay();
     }, 60000);
+  }
+
+  // Fix BUG-001: Override shutdown to clean up timers
+  async shutdown() {
+    if (this.decayIntervalId) {
+      clearInterval(this.decayIntervalId);
+      this.decayIntervalId = null;
+    }
+    if (this.decayTimeoutId) {
+      clearTimeout(this.decayTimeoutId);
+      this.decayTimeoutId = null;
+    }
+    await super.shutdown();
   }
 
   async processDecay() {

@@ -534,12 +534,10 @@ export class StreakModule extends BaseModule {
         
         const timeSinceLastActivity = now - data.lastActivity;
         
-        // Check if streak should expire
+        // Fix BUG-006: Simplified redundant logic - inner condition was always true
+        // Check if streak should expire (not frozen and past expiry time)
         if (timeSinceLastActivity > expiryTime && !data.frozen) {
-          // Check if we should break the streak
-          if (timeSinceLastActivity > expiryTime * 2 || !data.frozen) {
-            await this.breakStreak(userId, type, 'expired');
-          }
+          await this.breakStreak(userId, type, 'expired');
         }
       }
     }

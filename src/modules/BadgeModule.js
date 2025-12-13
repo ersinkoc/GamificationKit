@@ -500,7 +500,10 @@ export class BadgeModule extends BaseModule {
       completion: {
         earned: badges.length,
         available: allBadges.filter(b => !b.secret).length,
-        percentage: (badges.length / allBadges.filter(b => !b.secret).length) * 100
+        // Fix BUG-004: Prevent division by zero when no badges are available
+        percentage: allBadges.filter(b => !b.secret).length > 0
+          ? (badges.length / allBadges.filter(b => !b.secret).length) * 100
+          : 0
       }
     };
   }

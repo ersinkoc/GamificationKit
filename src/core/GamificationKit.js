@@ -378,8 +378,9 @@ export class GamificationKit {
   }
 
   async fastify() {
+    // Fix BUG-001: Pass context to fastify plugin like express and koa
     const { fastifyPlugin } = await import('../middleware/fastify.js');
-    return fastifyPlugin;
+    return fastifyPlugin(this);
   }
 
   async koa() {
