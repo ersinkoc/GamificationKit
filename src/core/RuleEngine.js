@@ -242,11 +242,26 @@ export class RuleEngine {
   }
 
   getFieldValue(field, context) {
+    // Fix: Protect against prototype pollution attacks
+    const DANGEROUS_PROPS = ['__proto__', 'constructor', 'prototype'];
+
     const parts = field.split('.');
     let value = context;
 
     for (const part of parts) {
       if (value == null) return undefined;
+
+      // Block access to dangerous prototype properties
+      if (DANGEROUS_PROPS.includes(part)) {
+        this.logger.warn(`Blocked access to dangerous property: ${part}`);
+        return undefined;
+      }
+
+      // Only access own properties to prevent prototype chain traversal
+      if (typeof value === 'object' && !Object.prototype.hasOwnProperty.call(value, part)) {
+        return undefined;
+      }
+
       value = value[part];
     }
 

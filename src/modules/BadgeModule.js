@@ -80,31 +80,58 @@ export class BadgeModule extends BaseModule {
 
   async award(userId, badgeId, metadata = {}) {
     validators.isUserId(userId);
-    
+
     const badge = this.badges.get(badgeId);
     if (!badge) {
       throw new Error(`Badge not found: ${badgeId}`);
     }
-    
+
     if (!badge.enabled) {
       return {
         success: false,
         reason: 'badge_disabled'
       };
     }
-    
-    // Check if already awarded
-    const userBadges = await this.getUserBadges(userId);
-    const existingAwards = userBadges.filter(b => b.badgeId === badgeId);
-    
-    if (existingAwards.length >= badge.maxAwards) {
-      return {
-        success: false,
-        reason: 'max_awards_reached',
-        maxAwards: badge.maxAwards
-      };
+
+    // Fix HIGH-006: Use atomic counter to prevent race condition
+    // For badges with maxAwards = 1, use set membership (atomic add returns 0 if already exists)
+    if (badge.maxAwards === 1) {
+      const added = await this.storage.sadd(
+        this.getStorageKey(`user:${userId}`),
+        badgeId
+      );
+
+      // sadd returns 0 if member already existed (atomic check)
+      if (added === 0) {
+        return {
+          success: false,
+          reason: 'max_awards_reached',
+          maxAwards: badge.maxAwards
+        };
+      }
+    } else {
+      // For badges with maxAwards > 1, use atomic counter
+      const awardCountKey = this.getStorageKey(`award_count:${userId}:${badgeId}`);
+      const newCount = await this.storage.increment(awardCountKey, 1);
+
+      // Check if we exceeded max awards (atomically incremented first)
+      if (newCount > badge.maxAwards) {
+        // Roll back the increment
+        await this.storage.decrement(awardCountKey, 1);
+        return {
+          success: false,
+          reason: 'max_awards_reached',
+          maxAwards: badge.maxAwards
+        };
+      }
+
+      // Add to set for multi-award badges
+      await this.storage.sadd(
+        this.getStorageKey(`user:${userId}`),
+        badgeId
+      );
     }
-    
+
     // Create award record
     const award = {
       id: `award_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
@@ -121,30 +148,24 @@ export class BadgeModule extends BaseModule {
       expiresAt: badge.expiresIn ? Date.now() + badge.expiresIn * 1000 : null,
       metadata
     };
-    
-    // Store award
-    await this.storage.sadd(
-      this.getStorageKey(`user:${userId}`),
-      badgeId
-    );
-    
+
     await this.storage.lpush(
       this.getStorageKey(`awards:${userId}`),
       JSON.stringify(award)
     );
-    
+
     // Update badge stats
     await this.storage.hincrby(
       this.getStorageKey('stats'),
       badgeId,
       1
     );
-    
+
     // Process rewards
     if (badge.rewards) {
       await this.processRewards(userId, badge.rewards);
     }
-    
+
     // Emit event
     await this.emitEvent('awarded', {
       userId,
@@ -152,9 +173,9 @@ export class BadgeModule extends BaseModule {
       badge,
       award
     });
-    
+
     this.logger.info(`Badge ${badgeId} awarded to user ${userId}`);
-    
+
     return {
       success: true,
       award

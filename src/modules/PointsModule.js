@@ -129,18 +129,33 @@ export class PointsModule extends BaseModule {
   async deduct(userId, points, reason = 'manual') {
     validators.isUserId(userId);
     validators.isPositiveNumber(points, 'points');
-    
-    const currentPoints = await this.getPoints(userId);
-    
-    if (currentPoints < points) {
+
+    // Fix HIGH-005: Use atomic decrement first, then check result to prevent race condition
+    // Instead of check-then-act, we do act-then-check-then-rollback
+    let newTotal = Number(await this.storage.hincrby(
+      this.getStorageKey('users'),
+      userId,
+      -points
+    ));
+
+    // Check if we went below minimum allowed (race condition safe check)
+    if (newTotal < this.config.minimumPoints) {
+      // Roll back the full deduction to restore original balance
+      const originalBalance = newTotal + points;
+      await this.storage.hincrby(
+        this.getStorageKey('users'),
+        userId,
+        points // Add back what we deducted
+      );
+
       return {
         success: false,
         reason: 'insufficient_points',
-        current: currentPoints,
+        current: originalBalance,
         required: points
       };
     }
-    
+
     const transaction = {
       id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
@@ -149,23 +164,6 @@ export class PointsModule extends BaseModule {
       reason,
       timestamp: Date.now()
     };
-    
-    // Update user points
-    let newTotal = Number(await this.storage.hincrby(
-      this.getStorageKey('users'),
-      userId,
-      -points
-    ));
-
-    // Fix BUG-012: Ensure minimum points BEFORE updating leaderboards
-    if (newTotal < this.config.minimumPoints) {
-      await this.storage.hset(
-        this.getStorageKey('users'),
-        userId,
-        this.config.minimumPoints
-      );
-      newTotal = this.config.minimumPoints;
-    }
 
     // Record transaction
     await this.storage.lpush(
@@ -175,7 +173,7 @@ export class PointsModule extends BaseModule {
 
     // Update leaderboards with corrected total
     await this.updateLeaderboards(userId, newTotal);
-    
+
     // Emit event
     await this.emitEvent('deducted', {
       userId,
@@ -183,9 +181,9 @@ export class PointsModule extends BaseModule {
       total: newTotal,
       transaction
     });
-    
+
     this.logger.info(`Deducted ${points} points from user ${userId} (${reason})`);
-    
+
     return {
       success: true,
       points,

@@ -361,29 +361,33 @@ describe('LeaderboardModule', () => {
     it('should auto-reset weekly leaderboard', async () => {
       const now = new Date('2024-01-08T00:00:00Z'); // Monday
       jest.setSystemTime(now);
-      
-      await leaderboardModule.update('user123', 100);
-      
+
+      // Fix: Use correct API signature - updateScore(leaderboardId, userId, score)
+      await leaderboardModule.updateScore('points-weekly', 'user123', 100);
+
       // Advance to next Monday
       jest.setSystemTime(new Date('2024-01-15T00:00:00Z'));
       await leaderboardModule.checkPeriodicResets();
-      
-      const weekly = await leaderboardModule.getLeaderboard({ period: 'weekly' });
-      expect(weekly).toEqual([]);
+
+      // Fix: Use correct API signature - getLeaderboard(leaderboardId, options)
+      const weekly = await leaderboardModule.getLeaderboard('points-weekly', { limit: 10 });
+      expect(weekly.entries).toEqual([]);
     });
 
     it('should auto-reset monthly leaderboard', async () => {
       const now = new Date('2024-01-31T23:59:59Z');
       jest.setSystemTime(now);
-      
-      await leaderboardModule.update('user123', 100);
-      
+
+      // Fix: Use correct API signature - updateScore(leaderboardId, userId, score)
+      await leaderboardModule.updateScore('points-monthly', 'user123', 100);
+
       // Advance to next month
       jest.setSystemTime(new Date('2024-02-01T00:00:00Z'));
       await leaderboardModule.checkPeriodicResets();
-      
-      const monthly = await leaderboardModule.getLeaderboard({ period: 'monthly' });
-      expect(monthly).toEqual([]);
+
+      // Fix: Use correct API signature - getLeaderboard(leaderboardId, options)
+      const monthly = await leaderboardModule.getLeaderboard('points-monthly', { limit: 10 });
+      expect(monthly.entries).toEqual([]);
     });
   });
 

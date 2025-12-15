@@ -408,8 +408,8 @@
             <div class="gk-section-title">Recent Badges</div>
             <div class="gk-badge-grid">
               ${this.data.badges.slice(0, 6).map(badge => `
-                <div class="gk-badge earned" title="${badge.name}">
-                  ${badge.icon || '🏆'}
+                <div class="gk-badge earned" title="${this.escapeHtml(badge.name)}">
+                  ${this.escapeHtml(badge.icon) || '🏆'}
                 </div>
               `).join('')}
             </div>
@@ -451,6 +451,17 @@
         return (num / 1000).toFixed(1) + 'K';
       }
       return num.toLocaleString();
+    }
+
+    // Fix: Add HTML escaping to prevent XSS attacks
+    escapeHtml(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
 
     showNotification(message, type = 'success') {

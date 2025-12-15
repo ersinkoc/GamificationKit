@@ -128,17 +128,18 @@ export class MongoStorage extends StorageInterface {
     const collection = this.db.collection(`${this.collectionPrefix}keyvalue`);
     const result = await collection.findOneAndUpdate(
       { key },
-      { 
+      {
         $inc: { value: amount },
         $set: { updatedAt: new Date() }
       },
-      { 
+      {
         returnDocument: 'after',
         upsert: true
       }
     );
-    
-    return result.value.value;
+
+    // Fix: Add null check to prevent crash if MongoDB returns null
+    return result?.value?.value ?? amount;
   }
 
   async decrement(key, amount = 1) {
@@ -324,17 +325,18 @@ export class MongoStorage extends StorageInterface {
     const collection = this.db.collection(`${this.collectionPrefix}sortedsets`);
     const result = await collection.findOneAndUpdate(
       { key, member },
-      { 
+      {
         $inc: { score: increment },
         $setOnInsert: { key, member }
       },
-      { 
+      {
         returnDocument: 'after',
         upsert: true
       }
     );
-    
-    return result.value.score;
+
+    // Fix: Add null check to prevent crash if MongoDB returns null
+    return result?.value?.score ?? increment;
   }
 
   async lpush(key, ...values) {
@@ -500,17 +502,18 @@ export class MongoStorage extends StorageInterface {
     const collection = this.db.collection(`${this.collectionPrefix}hashes`);
     const result = await collection.findOneAndUpdate(
       { key },
-      { 
+      {
         $inc: { [`fields.${field}`]: increment },
         $setOnInsert: { key }
       },
-      { 
+      {
         returnDocument: 'after',
         upsert: true
       }
     );
-    
-    return result.value.fields[field];
+
+    // Fix: Add null check to prevent crash if MongoDB returns null
+    return result?.value?.fields?.[field] ?? increment;
   }
 
   async expire(key, seconds) {

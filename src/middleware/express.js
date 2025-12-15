@@ -159,35 +159,77 @@ export function expressMiddleware(gamificationKit) {
 }
 
 // Route helpers
-export function gamificationRoutes(gamificationKit) {
+// Fix CRIT-009: Add authorization support for user endpoints
+export function gamificationRoutes(gamificationKit, options = {}) {
   const router = require('express').Router();
-  
+
+  // Admin keys for bypassing authorization
+  const adminKeys = new Set(options.adminKeys || []);
+
+  // Fix CRIT-009: Helper to check if user is authorized to access another user's data
+  const isAuthorized = (req, targetUserId) => {
+    // Check for admin API key
+    const apiKey = req.get('x-api-key');
+    if (apiKey && adminKeys.has(apiKey)) {
+      return true;
+    }
+
+    // Allow if no target user specified (will default to authenticated user)
+    if (!targetUserId) {
+      return true;
+    }
+
+    // Allow if authenticated user is accessing their own data
+    const authenticatedUserId = req.user?.id || req.userId;
+    if (authenticatedUserId && authenticatedUserId === targetUserId) {
+      return true;
+    }
+
+    // If no authentication required (public endpoints mode)
+    if (options.publicEndpoints === true) {
+      return true;
+    }
+
+    // Not authorized
+    return false;
+  };
+
   // User stats
   router.get('/stats/:userId?', async (req, res) => {
     try {
       const userId = req.params.userId || req.user?.id || req.userId;
-      
+
       if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
       }
-      
+
+      // Fix CRIT-009: Check authorization
+      if (!isAuthorized(req, req.params.userId)) {
+        return res.status(403).json({ error: 'Not authorized to access this user\'s data' });
+      }
+
       const stats = await gamificationKit.getUserStats(userId);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
-  
+
   // Points
   router.get('/points/:userId?', async (req, res) => {
     try {
       const userId = req.params.userId || req.user?.id || req.userId;
       const pointsModule = gamificationKit.modules.get('points');
-      
+
       if (!pointsModule) {
         return res.status(404).json({ error: 'Points module not found' });
       }
-      
+
+      // Fix CRIT-009: Check authorization
+      if (!isAuthorized(req, req.params.userId)) {
+        return res.status(403).json({ error: 'Not authorized to access this user\'s data' });
+      }
+
       const points = await pointsModule.getPoints(userId);
       res.json({ userId, points });
     } catch (error) {
@@ -198,13 +240,33 @@ export function gamificationRoutes(gamificationKit) {
   router.post('/points/award', async (req, res) => {
     try {
       const { userId, points, reason } = req.body;
+
+      // Fix CRIT-008: Validate input before processing
+      if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+        return res.status(400).json({ error: 'userId is required and must be a non-empty string' });
+      }
+
+      if (typeof points !== 'number' || !Number.isFinite(points)) {
+        return res.status(400).json({ error: 'points must be a finite number' });
+      }
+
+      if (points <= 0) {
+        return res.status(400).json({ error: 'points must be greater than 0' });
+      }
+
+      // Enforce reasonable maximum to prevent abuse
+      const MAX_POINTS = 1000000;
+      if (points > MAX_POINTS) {
+        return res.status(400).json({ error: `points cannot exceed ${MAX_POINTS}` });
+      }
+
       const pointsModule = gamificationKit.modules.get('points');
-      
+
       if (!pointsModule) {
         return res.status(404).json({ error: 'Points module not found' });
       }
-      
-      const result = await pointsModule.award(userId, points, reason);
+
+      const result = await pointsModule.award(userId.trim(), points, reason);
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -216,28 +278,38 @@ export function gamificationRoutes(gamificationKit) {
     try {
       const userId = req.params.userId || req.user?.id || req.userId;
       const badgeModule = gamificationKit.modules.get('badges');
-      
+
       if (!badgeModule) {
         return res.status(404).json({ error: 'Badge module not found' });
       }
-      
+
+      // Fix CRIT-009: Check authorization
+      if (!isAuthorized(req, req.params.userId)) {
+        return res.status(403).json({ error: 'Not authorized to access this user\'s data' });
+      }
+
       const badges = await badgeModule.getUserBadges(userId);
       res.json({ userId, badges });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
-  
+
   // Levels
   router.get('/level/:userId?', async (req, res) => {
     try {
       const userId = req.params.userId || req.user?.id || req.userId;
       const levelModule = gamificationKit.modules.get('levels');
-      
+
       if (!levelModule) {
         return res.status(404).json({ error: 'Level module not found' });
       }
-      
+
+      // Fix CRIT-009: Check authorization
+      if (!isAuthorized(req, req.params.userId)) {
+        return res.status(403).json({ error: 'Not authorized to access this user\'s data' });
+      }
+
       const level = await levelModule.getUserLevel(userId);
       res.json(level);
     } catch (error) {
@@ -293,31 +365,67 @@ export function gamificationRoutes(gamificationKit) {
 }
 
 // WebSocket support for Express
-export function gamificationWebSocket(gamificationKit, server) {
+// Fix CRIT-010: Add authentication support for WebSocket connections
+export function gamificationWebSocket(gamificationKit, server, options = {}) {
   const WebSocket = require('ws');
   const wss = new WebSocket.Server({ server });
-  
-  wss.on('connection', (ws, req) => {
-    const userId = req.url.split('?userId=')[1];
-    
+
+  // Admin/auth tokens for WebSocket authentication
+  const validTokens = new Set(options.authTokens || []);
+  const adminKeys = new Set(options.adminKeys || []);
+
+  // Token validator function (can be overridden via options)
+  const validateToken = options.validateToken || ((token, userId) => {
+    // Default: check against static token list or admin keys
+    return validTokens.has(token) || adminKeys.has(token);
+  });
+
+  wss.on('connection', async (ws, req) => {
+    // Parse query parameters
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const userId = url.searchParams.get('userId');
+    const token = url.searchParams.get('token');
+
     if (!userId) {
       ws.close(1008, 'userId required');
       return;
     }
-    
+
+    // Fix CRIT-010: Require authentication unless explicitly disabled
+    if (options.requireAuth !== false) {
+      if (!token) {
+        ws.close(1008, 'Authentication token required');
+        return;
+      }
+
+      // Validate the token
+      let isValid = false;
+      try {
+        isValid = await validateToken(token, userId);
+      } catch (error) {
+        console.error('WebSocket token validation error:', error);
+        isValid = false;
+      }
+
+      if (!isValid) {
+        ws.close(1008, 'Invalid authentication token');
+        return;
+      }
+    }
+
     // Subscribe to user events
     const handleEvent = (event) => {
       if (event.data.userId === userId) {
         ws.send(JSON.stringify(event));
       }
     };
-    
+
     gamificationKit.eventManager.onWildcard('*', handleEvent);
-    
+
     ws.on('close', () => {
       gamificationKit.eventManager.removeListener('*', handleEvent);
     });
-    
+
     // Send initial connection message
     ws.send(JSON.stringify({
       type: 'connected',
@@ -325,6 +433,6 @@ export function gamificationWebSocket(gamificationKit, server) {
       timestamp: Date.now()
     }));
   });
-  
+
   return wss;
 }

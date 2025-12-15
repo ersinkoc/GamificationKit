@@ -11,14 +11,18 @@ export class APIServer {
     this.port = options.port || 3001;
     this.prefix = options.prefix || '/gamification';
     this.corsEnabled = options.cors !== false;
+    // Fix CRIT-002: Support CORS origin whitelist instead of wildcard
+    this.corsOrigins = options.corsOrigins || null; // null = allow all (dev mode), array = whitelist
     this.apiKey = options.apiKey;
     this.adminKeys = new Set(options.adminKeys || []); // Fix BUG-003/004: Admin authentication
+    this.trustProxy = options.trustProxy || false; // Fix CRIT-001: Enable to trust X-Forwarded-For headers
     this.server = null;
     this.routes = new Map();
     this.rateLimiter = new Map();
     this.rateLimitOptions = options.rateLimit || { windowMs: 60000, max: 100 };
     this.rateLimiterCleanupInterval = null; // Fix BUG-022: Store cleanup interval
     this.websocketClients = new Set();
+    this.websocketBroadcastListenerRegistered = false; // Fix: Prevent memory leak from multiple listeners
 
     this.setupRoutes();
     this.startRateLimiterCleanup(); // Fix BUG-022: Periodic cleanup
@@ -95,7 +99,7 @@ export class APIServer {
   async handleRequest(req, res) {
     try {
       if (this.corsEnabled) {
-        this.setCorsHeaders(res);
+        this.setCorsHeaders(res, req);
       }
 
       if (req.method === 'OPTIONS') {
@@ -211,15 +215,37 @@ export class APIServer {
     });
   }
 
-  setCorsHeaders(res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  // Fix CRIT-002: CORS origin validation with whitelist support
+  setCorsHeaders(res, req) {
+    const origin = req?.headers?.origin;
+
+    // If corsOrigins is configured as an array, validate against whitelist
+    if (Array.isArray(this.corsOrigins) && this.corsOrigins.length > 0) {
+      if (origin && this.corsOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      } else if (!origin) {
+        // No origin header (same-origin requests, curl, etc.) - allow but don't set header
+      } else {
+        // Origin not in whitelist - don't set CORS headers (browser will block)
+        this.logger.debug('CORS: Blocked origin not in whitelist', { origin });
+      }
+    } else {
+      // No whitelist configured (dev mode) - allow all origins with warning
+      res.setHeader('Access-Control-Allow-Origin', origin || '*');
+      if (origin) {
+        res.setHeader('Vary', 'Origin');
+      }
+    }
+
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 
   checkRateLimit(req) {
-    const ip = req.socket.remoteAddress;
+    // Fix CRIT-001: Get client IP properly, considering proxies
+    const ip = this.getClientIP(req);
     const now = Date.now();
     const windowStart = now - this.rateLimitOptions.windowMs;
 
@@ -238,6 +264,33 @@ export class APIServer {
     this.rateLimiter.set(ip, recentRequests);
 
     return true;
+  }
+
+  // Fix CRIT-001: Properly extract client IP considering trusted proxies
+  getClientIP(req) {
+    // If trustProxy is enabled, check X-Forwarded-For header
+    if (this.trustProxy) {
+      const forwardedFor = req.headers['x-forwarded-for'];
+      if (forwardedFor) {
+        // X-Forwarded-For can contain multiple IPs: client, proxy1, proxy2
+        // The first IP is the original client
+        const ips = forwardedFor.split(',').map(ip => ip.trim());
+        // Validate it looks like an IP address (basic check)
+        const clientIP = ips[0];
+        if (clientIP && /^[\d.:a-fA-F]+$/.test(clientIP)) {
+          return clientIP;
+        }
+      }
+
+      // Also check X-Real-IP header (used by nginx)
+      const realIP = req.headers['x-real-ip'];
+      if (realIP && /^[\d.:a-fA-F]+$/.test(realIP)) {
+        return realIP;
+      }
+    }
+
+    // Fallback to socket remote address
+    return req.socket.remoteAddress || 'unknown';
   }
 
   // Fix BUG-022: Periodic cleanup of old rate limiter entries
@@ -631,7 +684,9 @@ export class APIServer {
       this.websocketClients.delete(ws);
     });
 
-    if (this.gamificationKit.eventManager) {
+    // Fix: Only register the wildcard listener once to prevent memory leak
+    if (this.gamificationKit.eventManager && !this.websocketBroadcastListenerRegistered) {
+      this.websocketBroadcastListenerRegistered = true;
       this.gamificationKit.eventManager.onWildcard('*', (event) => {
         this.broadcastToWebSockets(event);
       });

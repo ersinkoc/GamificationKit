@@ -5,7 +5,14 @@ export class PostgresStorage extends StorageInterface {
     super(options);
     this.client = null;
     this.pg = null;
-    this.tablePrefix = options.tablePrefix || 'gk_';
+
+    // Fix: Validate tablePrefix to prevent SQL injection
+    const tablePrefix = options.tablePrefix || 'gk_';
+    if (!/^[a-zA-Z0-9_]+$/.test(tablePrefix)) {
+      throw new Error('Invalid tablePrefix: must contain only alphanumeric characters and underscores');
+    }
+    this.tablePrefix = tablePrefix;
+
     this.cleanupInterval = null; // Fix BUG-025: Store interval reference
   }
 
@@ -648,35 +655,50 @@ export class PostgresStorage extends StorageInterface {
   }
 
   async transaction(operations) {
-    const client = await this.client.connect();
+    // Fix CRIT-012: Ensure connection is always released even on errors
+    let client = null;
+    const originalClient = this.client;
 
     try {
+      client = await this.client.connect();
       await client.query('BEGIN');
 
-      // Fix BUG-008: Temporarily replace this.client with transaction client
+      // Temporarily replace this.client with transaction client
       // so all operations execute within the transaction
-      const originalClient = this.client;
       this.client = client;
 
       const results = [];
-      try {
-        for (const op of operations) {
-          const { method, args } = op;
-          const result = await this[method](...args);
-          results.push(result);
-        }
-      } finally {
-        // Restore original client
-        this.client = originalClient;
+      for (const op of operations) {
+        const { method, args } = op;
+        const result = await this[method](...args);
+        results.push(result);
       }
 
       await client.query('COMMIT');
       return results;
     } catch (error) {
-      await client.query('ROLLBACK');
+      // Only rollback if we have a client connection
+      if (client) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          // Log rollback error but throw the original error
+          console.error('Error during rollback:', rollbackError.message);
+        }
+      }
       throw error;
     } finally {
-      client.release();
+      // Always restore original client
+      this.client = originalClient;
+
+      // Always release the connection if we got one
+      if (client) {
+        try {
+          client.release();
+        } catch (releaseError) {
+          console.error('Error releasing client:', releaseError.message);
+        }
+      }
     }
   }
 }

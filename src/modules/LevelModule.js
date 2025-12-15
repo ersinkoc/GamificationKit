@@ -87,20 +87,45 @@ export class LevelModule extends BaseModule {
   async addXP(userId, xp, reason = 'manual') {
     validators.isUserId(userId);
     validators.isPositiveNumber(xp, 'xp');
-    
+
     const multiplier = await this.getXPMultiplier(userId, reason);
     const actualXP = Math.floor(xp * multiplier);
-    
-    // Get current user data
+
+    // Fix HIGH-007: Use atomic increment to prevent race condition
+    // First, ensure user exists with default data if needed
+    const existingData = await this.storage.hget(
+      this.getStorageKey('users'),
+      userId
+    );
+
+    if (!existingData) {
+      // Initialize user with starting values
+      await this.storage.hset(
+        this.getStorageKey('users'),
+        userId,
+        {
+          level: this.config.startingLevel,
+          totalXP: this.config.startingXP,
+          currentLevelXP: 0,
+          prestige: 0,
+          updatedAt: Date.now()
+        }
+      );
+    }
+
+    // Use atomic increment for XP - this is the key fix for race condition
+    const xpKey = this.getStorageKey(`xp:${userId}`);
+    const newTotalXP = await this.storage.increment(xpKey, actualXP);
+
+    // Get user data after atomic increment to get prestige info
     const userData = await this.getUserData(userId);
     const oldLevel = userData.level;
-    const newTotalXP = userData.totalXP + actualXP;
-    
-    // Calculate new level
+
+    // Calculate new level based on atomically updated XP
     const newLevel = this.calculateLevelFromXP(newTotalXP, userData.prestige);
     const levelChanged = newLevel !== oldLevel;
-    
-    // Update user data
+
+    // Update user data with new level (XP is authoritative from atomic counter)
     const transaction = {
       userId,
       type: 'xp_gain',
@@ -110,11 +135,11 @@ export class LevelModule extends BaseModule {
       reason,
       oldLevel,
       newLevel,
-      oldXP: userData.totalXP,
+      oldXP: newTotalXP - actualXP,
       newXP: newTotalXP,
       timestamp: Date.now()
     };
-    
+
     await this.storage.hset(
       this.getStorageKey('users'),
       userId,
@@ -126,21 +151,21 @@ export class LevelModule extends BaseModule {
         updatedAt: Date.now()
       }
     );
-    
+
     // Record transaction
     await this.storage.lpush(
       this.getStorageKey(`history:${userId}`),
       JSON.stringify(transaction)
     );
-    
+
     // Process level up if needed
     if (levelChanged) {
       await this.processLevelChange(userId, oldLevel, newLevel, userData.prestige);
     }
-    
+
     // Update leaderboards
     await this.updateLeaderboards(userId, newTotalXP, newLevel);
-    
+
     // Emit event
     await this.emitEvent('xp.gained', {
       userId,
@@ -150,9 +175,9 @@ export class LevelModule extends BaseModule {
       levelChanged,
       transaction
     });
-    
+
     this.logger.info(`User ${userId} gained ${actualXP} XP (${reason})`);
-    
+
     return {
       success: true,
       xpGained: actualXP,

@@ -6,6 +6,8 @@ export class MetricsCollector {
     this.eventManager = options.eventManager;
     this.storage = options.storage;
     this.collectInterval = options.collectInterval || 60000;
+    this.maxEventTypes = options.maxEventTypes || 500; // Fix HIGH-004: Limit tracked event types
+    this.maxModules = options.maxModules || 100; // Fix HIGH-004: Limit tracked modules
     this.metrics = {
       events: new Map(),
       modules: new Map(),
@@ -50,6 +52,12 @@ export class MetricsCollector {
 
   recordEvent(eventName, data = {}) {
     if (!this.metrics.events.has(eventName)) {
+      // Fix HIGH-004: Enforce max event types to prevent unbounded memory growth
+      if (this.metrics.events.size >= this.maxEventTypes) {
+        // Remove the oldest event type (first in Map iteration order)
+        const oldestKey = this.metrics.events.keys().next().value;
+        this.metrics.events.delete(oldestKey);
+      }
       this.metrics.events.set(eventName, {
         count: 0,
         firstSeen: Date.now(),
@@ -74,6 +82,11 @@ export class MetricsCollector {
 
   recordModuleMetric(moduleName, metric, value) {
     if (!this.metrics.modules.has(moduleName)) {
+      // Fix HIGH-004: Enforce max modules to prevent unbounded memory growth
+      if (this.metrics.modules.size >= this.maxModules) {
+        const oldestKey = this.metrics.modules.keys().next().value;
+        this.metrics.modules.delete(oldestKey);
+      }
       this.metrics.modules.set(moduleName, {});
     }
 

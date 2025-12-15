@@ -11,7 +11,8 @@ export class EventManager extends EventEmitter {
     this.maxListeners = options.maxListeners || 100;
     this.enableHistory = options.enableHistory !== false;
     this.historyLimit = options.historyLimit || 1000;
-    
+    this.maxEventTypes = options.maxEventTypes || 500; // Fix HIGH-002: Limit unique event types
+
     this.setMaxListeners(this.maxListeners);
   }
 
@@ -103,7 +104,28 @@ export class EventManager extends EventEmitter {
   }
 
   patternToRegex(pattern) {
-    const escaped = pattern
+    // Fix HIGH-003: Validate pattern to prevent ReDoS attacks
+    const MAX_PATTERN_LENGTH = 100;
+    const MAX_WILDCARDS = 10;
+
+    if (typeof pattern !== 'string') {
+      throw new Error('Pattern must be a string');
+    }
+
+    if (pattern.length > MAX_PATTERN_LENGTH) {
+      throw new Error(`Pattern too long (max ${MAX_PATTERN_LENGTH} characters)`);
+    }
+
+    // Count wildcards to prevent exponential backtracking
+    const wildcardCount = (pattern.match(/\*/g) || []).length + (pattern.match(/\?/g) || []).length;
+    if (wildcardCount > MAX_WILDCARDS) {
+      throw new Error(`Too many wildcards in pattern (max ${MAX_WILDCARDS})`);
+    }
+
+    // Collapse consecutive wildcards to prevent catastrophic backtracking
+    const normalizedPattern = pattern.replace(/\*+/g, '*');
+
+    const escaped = normalizedPattern
       .replace(/[.+^${}()|[\]\\]/g, '\\$&')
       .replace(/\*/g, '.*')
       .replace(/\?/g, '.');
@@ -116,6 +138,13 @@ export class EventManager extends EventEmitter {
 
   addToHistory(eventName, eventData) {
     if (!this.eventHistory.has(eventName)) {
+      // Fix HIGH-002: Enforce max event types to prevent unbounded memory growth
+      if (this.eventHistory.size >= this.maxEventTypes) {
+        // Remove the oldest event type (first in Map iteration order)
+        const oldestKey = this.eventHistory.keys().next().value;
+        this.eventHistory.delete(oldestKey);
+        this.logger.debug(`Evicted oldest event type from history: ${oldestKey}`);
+      }
       this.eventHistory.set(eventName, []);
     }
 

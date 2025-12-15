@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, createContext } from 'react';
+import React, { useState, useEffect, useContext, createContext, useRef } from 'react';
 
 // Gamification Context
 const GamificationContext = createContext();
@@ -25,7 +25,8 @@ export const GamificationProvider = ({ children, config = {} }) => {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [ws, setWs] = useState(null);
+  // Fix HIGH-013: Use ref instead of state to ensure cleanup works properly
+  const wsRef = useRef(null);
 
   const defaultConfig = {
     apiUrl: '/gamification',
@@ -106,24 +107,37 @@ export const GamificationProvider = ({ children, config = {} }) => {
     }
 
     // Set up WebSocket
+    // Fix HIGH-013: Store in ref to ensure proper cleanup
     if (defaultConfig.websocket && defaultConfig.userId) {
       const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${defaultConfig.apiUrl}/ws?userId=${defaultConfig.userId}`;
       const websocket = new WebSocket(wsUrl);
 
       websocket.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        // Refresh data on relevant events
-        if (['points.awarded', 'badge.awarded', 'level.up', 'quest.completed'].includes(message.type)) {
-          fetchData();
+        try {
+          const message = JSON.parse(event.data);
+          // Refresh data on relevant events
+          if (['points.awarded', 'badge.awarded', 'level.up', 'quest.completed'].includes(message.type)) {
+            fetchData();
+          }
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
         }
       };
 
-      setWs(websocket);
+      websocket.onerror = (err) => {
+        console.error('WebSocket error:', err);
+      };
+
+      wsRef.current = websocket;
     }
 
     return () => {
       if (refreshInterval) clearInterval(refreshInterval);
-      if (ws) ws.close();
+      // Fix HIGH-013: Use ref.current to access the actual WebSocket instance
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [defaultConfig.userId]);
 
