@@ -60,7 +60,6 @@ export interface MetricsResult {
 export class MetricsCollector {
   private logger: Logger;
   private eventManager?: EventManager;
-  private storage?: IStorageAdapter;
   private collectInterval: number;
   private maxEventTypes: number;
   private maxModules: number;
@@ -75,7 +74,7 @@ export class MetricsCollector {
   constructor(options: MetricsCollectorOptions = {}) {
     this.logger = new Logger({ prefix: 'MetricsCollector', ...options.logger });
     this.eventManager = options.eventManager;
-    this.storage = options.storage;
+    // this._storage = options.storage;
     this.collectInterval = options.collectInterval || 60000;
     this.maxEventTypes = options.maxEventTypes || 500; // Fix HIGH-004: Limit tracked event types
     this.maxModules = options.maxModules || 100; // Fix HIGH-004: Limit tracked modules
@@ -126,8 +125,10 @@ export class MetricsCollector {
       // Fix HIGH-004: Enforce max event types to prevent unbounded memory growth
       if (this.metrics.events.size >= this.maxEventTypes) {
         // Remove the oldest event type (first in Map iteration order)
-        const oldestKey = this.metrics.events.keys().next().value;
-        this.metrics.events.delete(oldestKey);
+        const oldestKey = this.metrics.events.keys().next().value as string;
+        if (oldestKey) {
+          this.metrics.events.delete(oldestKey);
+        }
       }
       this.metrics.events.set(eventName, {
         count: 0,
@@ -155,8 +156,10 @@ export class MetricsCollector {
     if (!this.metrics.modules.has(moduleName)) {
       // Fix HIGH-004: Enforce max modules to prevent unbounded memory growth
       if (this.metrics.modules.size >= this.maxModules) {
-        const oldestKey = this.metrics.modules.keys().next().value;
-        this.metrics.modules.delete(oldestKey);
+        const oldestKey = this.metrics.modules.keys().next().value as string;
+        if (oldestKey) {
+          this.metrics.modules.delete(oldestKey);
+        }
       }
       this.metrics.modules.set(moduleName, {});
     }

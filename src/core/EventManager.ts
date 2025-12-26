@@ -185,9 +185,11 @@ export class EventManager extends EventEmitter {
       // Fix HIGH-002: Enforce max event types to prevent unbounded memory growth
       if (this.eventHistory.size >= this.maxEventTypes) {
         // Remove the oldest event type (first in Map iteration order)
-        const oldestKey = this.eventHistory.keys().next().value;
-        this.eventHistory.delete(oldestKey);
-        this.logger.debug(`Evicted oldest event type from history: ${oldestKey}`);
+        const oldestKey = this.eventHistory.keys().next().value as string;
+        if (oldestKey) {
+          this.eventHistory.delete(oldestKey);
+          this.logger.debug(`Evicted oldest event type from history: ${oldestKey}`);
+        }
       }
       this.eventHistory.set(eventName, []);
     }

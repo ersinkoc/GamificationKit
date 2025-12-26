@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * Storage interface and related types for GamificationKit
  */
 
-import type { UserId, Metadata, PaginationParams, PaginatedResponse } from './common.js';
+import type { UserId, Metadata, PaginationParams,   PaginatedResponse as _PaginatedResponse } from './common.js';
 
 // Storage key types
 export type StorageKey = string;
@@ -261,3 +262,6 @@ export interface MemoryStorageConfig {
   ttl?: number;
   checkPeriod?: number;
 }
+
+// Type alias for convenience
+export type StorageInterface = IStorageAdapter;

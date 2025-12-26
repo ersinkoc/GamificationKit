@@ -26,15 +26,15 @@ export class StorageInterface {
     throw new Error('disconnect() must be implemented by storage adapter');
   }
 
-  async get(_key: StorageKey): Promise<StorageValue> {
+  async get(_key: StorageKey, _options?: any): Promise<any> {
     throw new Error('get() must be implemented by storage adapter');
   }
 
-  async set(_key: StorageKey, _value: StorageValue, _ttl?: number): Promise<void> {
+  async set(_key: StorageKey, _value: StorageValue, _options?: any): Promise<void> {
     throw new Error('set() must be implemented by storage adapter');
   }
 
-  async delete(_key: StorageKey): Promise<boolean> {
+  async delete(_key: StorageKey, _options?: any): Promise<boolean> {
     throw new Error('delete() must be implemented by storage adapter');
   }
 
@@ -50,16 +50,28 @@ export class StorageInterface {
     throw new Error('decrement() must be implemented by storage adapter');
   }
 
-  async mget(_keys: StorageKey[]): Promise<Record<string, any>> {
+  async mget(_keys: StorageKey[]): Promise<any[]> {
     throw new Error('mget() must be implemented by storage adapter');
   }
 
-  async mset(_entries: Record<string, any> | Array<[StorageKey, StorageValue]>): Promise<void> {
+  async mset(_entries: Array<[StorageKey, StorageValue]>, _options?: any): Promise<void> {
     throw new Error('mset() must be implemented by storage adapter');
+  }
+
+  async mdelete(_keys: StorageKey[]): Promise<number> {
+    throw new Error('mdelete() must be implemented by storage adapter');
+  }
+
+  async list(_options?: any): Promise<StorageKey[]> {
+    throw new Error('list() must be implemented by storage adapter');
   }
 
   async keys(_pattern?: string): Promise<StorageKey[]> {
     throw new Error('keys() must be implemented by storage adapter');
+  }
+
+  async persist(_key: StorageKey): Promise<boolean> {
+    throw new Error('persist() must be implemented by storage adapter');
   }
 
   async clear(_pattern?: string): Promise<number> {
@@ -74,11 +86,11 @@ export class StorageInterface {
     throw new Error('zrem() must be implemented by storage adapter');
   }
 
-  async zrange(_key: StorageKey, _start: number, _stop: number, _options: ZRangeOptions = {}): Promise<any[]> {
+  async zrange(_key: StorageKey, _start: number, _stop: number, _withScores?: boolean): Promise<any[]> {
     throw new Error('zrange() must be implemented by storage adapter');
   }
 
-  async zrevrange(_key: StorageKey, _start: number, _stop: number, _options: ZRangeOptions = {}): Promise<any[]> {
+  async zrevrange(_key: StorageKey, _start: number, _stop: number, _withScores?: boolean): Promise<any[]> {
     throw new Error('zrevrange() must be implemented by storage adapter');
   }
 
@@ -126,11 +138,11 @@ export class StorageInterface {
     throw new Error('llen() must be implemented by storage adapter');
   }
 
-  async sadd(_key: StorageKey, ..._members: any[]): Promise<number> {
+  async sadd(_key: StorageKey, _members: any | any[]): Promise<number> {
     throw new Error('sadd() must be implemented by storage adapter');
   }
 
-  async srem(_key: StorageKey, ..._members: any[]): Promise<number> {
+  async srem(_key: StorageKey, _members: any | any[]): Promise<number> {
     throw new Error('srem() must be implemented by storage adapter');
   }
 
@@ -154,11 +166,35 @@ export class StorageInterface {
     throw new Error('hget() must be implemented by storage adapter');
   }
 
+  async hmget(_key: StorageKey, _fields: string[]): Promise<any[]> {
+    throw new Error('hmget() must be implemented by storage adapter');
+  }
+
+  async hmset(_key: StorageKey, _data: Record<string, any>): Promise<void> {
+    throw new Error('hmset() must be implemented by storage adapter');
+  }
+
   async hgetall(_key: StorageKey): Promise<Record<string, any>> {
     throw new Error('hgetall() must be implemented by storage adapter');
   }
 
-  async hdel(_key: StorageKey, ..._fields: string[]): Promise<number> {
+  async hkeys(_key: StorageKey): Promise<string[]> {
+    throw new Error('hkeys() must be implemented by storage adapter');
+  }
+
+  async hvals(_key: StorageKey): Promise<any[]> {
+    throw new Error('hvals() must be implemented by storage adapter');
+  }
+
+  async hexists(_key: StorageKey, _field: string): Promise<boolean> {
+    throw new Error('hexists() must be implemented by storage adapter');
+  }
+
+  async hlen(_key: StorageKey): Promise<number> {
+    throw new Error('hlen() must be implemented by storage adapter');
+  }
+
+  async hdel(_key: StorageKey, _fields: string | string[]): Promise<number> {
     throw new Error('hdel() must be implemented by storage adapter');
   }
 

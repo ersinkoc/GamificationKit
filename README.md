@@ -24,6 +24,16 @@ npm install @oxog/gamification-kit
 
 ## Quick Start
 
+### TypeScript
+
+```typescript
+import { GamificationKit, PointsModule, BadgeModule, LevelModule } from '@oxog/gamification-kit';
+```
+
+This package is written in **TypeScript** and includes full type definitions. TypeScript users get automatic IntelliSense and type checking.
+
+### JavaScript
+
 ```javascript
 import { GamificationKit, PointsModule, BadgeModule, LevelModule } from '@oxog/gamification-kit';
 
@@ -70,7 +80,7 @@ await gamification.track('post.created', {
 
 ## Express Integration
 
-```javascript
+```typescript
 import express from 'express';
 import { GamificationKit } from '@oxog/gamification-kit';
 

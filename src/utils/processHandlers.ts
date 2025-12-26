@@ -105,7 +105,7 @@ export function setupGracefulShutdown(
   });
 
   // Handle unhandled promise rejections
-  process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  process.on('unhandledRejection', (reason: any, _promise: Promise<any>) => {
     logger.error('Unhandled promise rejection', {
       reason: reason instanceof Error ? reason.message : String(reason),
       stack: reason instanceof Error ? reason.stack : undefined

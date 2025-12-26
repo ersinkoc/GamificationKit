@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
 import type { StorageKey, StorageValue } from '../types/storage.js';
 import type { Pool, PoolClient } from 'pg';

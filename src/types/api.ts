@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * API and HTTP types for GamificationKit
  */
 
-import type { UserId, Metadata, ErrorResponse, SuccessResponse } from './common.js';
+import type { UserId, Metadata, ErrorResponse as _ErrorResponse, SuccessResponse as _SuccessResponse } from './common.js';
 import type { UserStats } from './modules.js';
 
 // HTTP Methods

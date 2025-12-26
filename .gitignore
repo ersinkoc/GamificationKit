@@ -11,6 +11,9 @@ build/
 *.min.css
 !dist/.gitkeep
 
+# TypeScript
+*.tsbuildinfo
+
 # Test coverage
 coverage/
 .nyc_output/

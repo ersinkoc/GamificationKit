@@ -2,7 +2,7 @@
  * Configuration types for GamificationKit
  */
 
-import type { LogLevel, UserId, Metadata } from './common.js';
+import type { LogLevel, UserId, Metadata as _Metadata } from './common.js';
 
 // Storage configuration
 export interface StorageOptions {
@@ -100,6 +100,7 @@ export interface WebhookConfig {
   retryDelay?: number;
   retryBackoff?: 'linear' | 'exponential';
   maxRetryDelay?: number;
+  maxQueueSize?: number;
   verifySSL?: boolean;
   headers?: Record<string, string>;
   events?: string[];
@@ -159,6 +160,10 @@ export interface HealthCheckConfig {
   interval?: number;
   timeout?: number;
   checks?: HealthCheck[];
+  checkInterval?: number;
+  memoryThreshold?: number;
+  eventLoopLagThreshold?: number;
+  storageResponseThreshold?: number;
 }
 
 export interface HealthCheck {
@@ -195,6 +200,7 @@ export interface GamificationKitConfig {
   metrics?: MetricsConfig;
   logger?: LoggerConfig;
   security?: SecurityConfig;
+  health?: HealthCheckConfig; // Alias for healthCheck
   healthCheck?: HealthCheckConfig;
   secretManager?: SecretManagerConfig;
   gracefulShutdown?: {
@@ -322,3 +328,9 @@ export interface AchievementModuleConfig {
   notifications?: boolean;
   retroactive?: boolean;
 }
+
+// Type aliases for convenience
+export type GamificationConfig = GamificationKitConfig;
+// ModuleContext is defined in modules.ts
+// RuleAction is defined in modules.ts
+export type GamificationKitInstance = any; // TODO: Define properly

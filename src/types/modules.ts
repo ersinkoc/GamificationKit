@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * Module system types for GamificationKit
  */
@@ -7,13 +8,12 @@ import type {
   Metadata,
   Reward,
   BadgeRarity,
-  XPFormula,
+  XPFormula as _XPFormula, // May be used in future
   TimePeriod,
   QuestStatus
 } from './common.js';
 import type { IStorageAdapter } from './storage.js';
 import type { IEventManager } from './events.js';
-import type { LoggerConfig } from './config.js';
 
 // Module context
 export interface ModuleContext {
