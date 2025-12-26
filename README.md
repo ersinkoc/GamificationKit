@@ -9,6 +9,13 @@
 
 A comprehensive, production-ready gamification system for Node.js applications that can be easily integrated with minimal code changes.
 
+## 📚 Documentation
+
+- **Website**: [https://gamificationkit.oxog.dev](https://gamificationkit.oxog.dev)
+- **API Reference**: [https://gamificationkit.oxog.dev/docs/api](https://gamificationkit.oxog.dev/docs/api)
+- **Getting Started**: [https://gamificationkit.oxog.dev/getting-started](https://gamificationkit.oxog.dev/getting-started)
+- **Examples**: [https://gamificationkit.oxog.dev/examples](https://gamificationkit.oxog.dev/examples)
+
 ## Features
 
 - 🎯 **Points System** - Award points with multipliers, limits, and decay

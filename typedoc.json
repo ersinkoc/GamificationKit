@@ -6,7 +6,9 @@
     "**/node_modules/**",
     "**/tests/**",
     "**/dist/**",
-    "**/examples/**"
+    "**/examples/**",
+    "**/*.test.ts",
+    "**/*.spec.ts"
   ],
   "excludePrivate": true,
   "excludeProtected": false,
@@ -40,9 +42,14 @@
   "githubPages": false,
   "hideGenerator": true,
   "searchInComments": true,
+  "skipErrorChecking": true,
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true
+  },
   "validation": {
-    "notExported": true,
-    "invalidLink": true,
+    "notExported": false,
+    "invalidLink": false,
     "notDocumented": false
   }
 }

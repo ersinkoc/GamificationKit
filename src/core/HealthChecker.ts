@@ -223,11 +223,9 @@ export class HealthChecker {
         const duration = Date.now() - startTime;
 
         const checkResult: HealthCheckResult = {
-          status: result.status || 'unknown',
-          message: result.message || '',
+          ...result,
           duration,
-          timestamp: new Date().toISOString(),
-          ...result
+          timestamp: new Date().toISOString()
         };
 
         this.lastCheckResults.set(name, checkResult);
@@ -472,7 +470,7 @@ export class HealthChecker {
    * Check modules status
    */
   private async checkModules(): Promise<HealthCheckResult> {
-    const modules = Array.from(this.gamificationKit.modules.keys());
+    const modules = Array.from(this.gamificationKit.modules.keys()) as string[];
     const moduleStatuses: Record<string, { initialized: boolean }> = {};
 
     for (const moduleName of modules) {

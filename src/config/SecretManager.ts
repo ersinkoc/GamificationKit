@@ -41,11 +41,11 @@ export class SecretManager {
   private backend: 'env' | 'vault' | 'aws' | 'azure';
   private encryptionKey: Buffer | null;
   private initialized: boolean;
-  private _vaultConfig: VaultConfig;
-  private _awsConfig: AWSConfig;
-  private _azureConfig: AzureConfig;
+  private vaultConfig: VaultConfig;
+  private awsConfig: AWSConfig;
+  private azureConfig: AzureConfig;
   private cacheTTL: number;
-  private _autoRefresh: boolean;
+  private autoRefresh: boolean;
 
   constructor(options: SecretManagerOptions = {}) {
     this.logger = new Logger({ prefix: 'SecretManager', ...options.logger });
@@ -55,13 +55,13 @@ export class SecretManager {
     this.initialized = false;
 
     // Backend configurations
-    this._vaultConfig = options.vault || {};
-    this._awsConfig = options.aws || {};
-    this._azureConfig = options.azure || {};
+    this.vaultConfig = options.vault || {};
+    this.awsConfig = options.aws || {};
+    this.azureConfig = options.azure || {};
 
     // Cache settings
     this.cacheTTL = options.cacheTTL || 300000; // 5 minutes
-    this._autoRefresh = options.autoRefresh !== false;
+    this.autoRefresh = options.autoRefresh !== false;
   }
 
   /**

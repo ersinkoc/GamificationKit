@@ -9,7 +9,6 @@ import type { Logger } from '../utils/logger.js';
 interface ExtendedWebSocket extends WebSocket {
   subscribedEvents?: string[];
   pingInterval?: NodeJS.Timeout | null;
-  OPEN: number;
 }
 
 /**
@@ -103,8 +102,12 @@ export class WebSocketServer {
 
       // Fix BUG-008: Subscribe to all gamification events using onWildcard instead of on
       // The on('*') only listens for literal '*' events, not all events
-      this.eventManager.onWildcard('*', (data: WebSocketEventData) => {
-        this.broadcastToRelevantClients(data);
+      this.eventManager.onWildcard('*', (eventData) => {
+        const wsData: WebSocketEventData = {
+          ...eventData.data,
+          type: eventData.eventName
+        };
+        this.broadcastToRelevantClients(wsData);
       });
 
       return new Promise((resolve) => {

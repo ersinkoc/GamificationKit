@@ -11,6 +11,8 @@ build/
 *.min.css
 !dist/.gitkeep
 docs/api/
+website/dist/
+website/node_modules/
 
 # TypeScript
 *.tsbuildinfo
