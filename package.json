@@ -1,6 +1,6 @@
 {
   "name": "@oxog/gamification-kit",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A comprehensive, production-ready gamification kit for Node.js applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
