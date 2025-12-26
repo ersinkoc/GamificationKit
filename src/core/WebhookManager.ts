@@ -1,9 +1,72 @@
 import { Logger } from '../utils/logger.js';
 import { validators } from '../utils/validators.js';
 import crypto from 'crypto';
+import type { LoggerConfig } from '../types/config.js';
+import type { EventManager, EventData } from './EventManager.js';
+
+export interface WebhookManagerOptions {
+  logger?: LoggerConfig;
+  eventManager?: EventManager;
+  timeout?: number;
+  retries?: number;
+  retryDelay?: number;
+  signingSecret?: string;
+  maxQueueSize?: number;
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  enabled?: boolean;
+  headers?: Record<string, string>;
+  retries?: number;
+  timeout?: number;
+  createdAt?: number;
+}
+
+export interface QueueItem {
+  webhook: Webhook;
+  event: EventData;
+  attempts: number;
+  createdAt: number;
+}
+
+export interface WebhookPayload {
+  webhookId: string;
+  timestamp: number;
+  event: {
+    name: string;
+    data: any;
+    id: string;
+    timestamp: number;
+  };
+}
+
+export interface WebhookStats {
+  webhooks: Record<string, {
+    url: string;
+    enabled: boolean;
+    events: string[];
+    createdAt: number;
+  }>;
+  queueSize: number;
+  processing: boolean;
+}
 
 export class WebhookManager {
-  constructor(options = {}) {
+  private logger: Logger;
+  private eventManager?: EventManager;
+  private webhooks: Map<string, Webhook>;
+  private timeout: number;
+  private retries: number;
+  private retryDelay: number;
+  private signingSecret: string;
+  private queue: QueueItem[];
+  private processing: boolean;
+  private maxQueueSize: number;
+
+  constructor(options: WebhookManagerOptions = {}) {
     this.logger = new Logger({ prefix: 'WebhookManager', ...options.logger });
     this.eventManager = options.eventManager;
     this.webhooks = new Map();
@@ -14,14 +77,14 @@ export class WebhookManager {
     this.queue = [];
     this.processing = false;
     this.maxQueueSize = options.maxQueueSize || 1000;
-    
+
     this.setupEventListeners();
   }
 
-  setupEventListeners() {
+  setupEventListeners(): void {
     if (!this.eventManager) return;
 
-    this.eventManager.onWildcard('*', async (event) => {
+    this.eventManager.onWildcard('*', async (event: EventData) => {
       const webhooks = this.getWebhooksForEvent(event.eventName);
       if (webhooks.length > 0) {
         await this.queueWebhookCalls(webhooks, event);
@@ -29,13 +92,13 @@ export class WebhookManager {
     });
   }
 
-  addWebhook(webhook) {
+  addWebhook(webhook: Webhook): Webhook {
     validators.hasProperties(webhook, ['id', 'url', 'events'], 'webhook');
     validators.isNonEmptyString(webhook.id, 'webhook.id');
     validators.isNonEmptyString(webhook.url, 'webhook.url');
     validators.isArray(webhook.events, 'webhook.events');
 
-    const processedWebhook = {
+    const processedWebhook: Webhook = {
       ...webhook,
       enabled: webhook.enabled !== false,
       createdAt: Date.now(),
@@ -46,11 +109,11 @@ export class WebhookManager {
 
     this.webhooks.set(webhook.id, processedWebhook);
     this.logger.info(`Webhook added: ${webhook.id}`, { url: webhook.url });
-    
+
     return processedWebhook;
   }
 
-  removeWebhook(webhookId) {
+  removeWebhook(webhookId: string): boolean {
     const removed = this.webhooks.delete(webhookId);
     if (removed) {
       this.logger.info(`Webhook removed: ${webhookId}`);
@@ -58,12 +121,12 @@ export class WebhookManager {
     return removed;
   }
 
-  getWebhooksForEvent(eventName) {
-    const webhooks = [];
-    
+  getWebhooksForEvent(eventName: string): Webhook[] {
+    const webhooks: Webhook[] = [];
+
     for (const webhook of this.webhooks.values()) {
       if (!webhook.enabled) continue;
-      
+
       const matches = webhook.events.some(pattern => {
         if (pattern === '*') return true;
         if (pattern === eventName) return true;
@@ -77,18 +140,18 @@ export class WebhookManager {
         const regex = new RegExp('^' + escaped + '$');
         return regex.test(eventName);
       });
-      
+
       if (matches) {
         webhooks.push(webhook);
       }
     }
-    
+
     return webhooks;
   }
 
-  async queueWebhookCalls(webhooks, event) {
+  async queueWebhookCalls(webhooks: Webhook[], event: EventData): Promise<void> {
     for (const webhook of webhooks) {
-      const queueItem = {
+      const queueItem: QueueItem = {
         webhook,
         event,
         attempts: 0,
@@ -108,27 +171,27 @@ export class WebhookManager {
     }
   }
 
-  async processQueue() {
+  async processQueue(): Promise<void> {
     if (this.processing || this.queue.length === 0) return;
-    
+
     this.processing = true;
 
     while (this.queue.length > 0) {
-      const item = this.queue.shift();
+      const item = this.queue.shift()!;
       await this.callWebhook(item);
     }
 
     this.processing = false;
   }
 
-  async callWebhook(item) {
+  async callWebhook(item: QueueItem): Promise<{ success: boolean; status?: number; error?: string }> {
     const { webhook, event, attempts } = item;
-    
+
     try {
       const payload = this.preparePayload(webhook, event);
       const signature = this.generateSignature(payload);
-      
-      const headers = {
+
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'X-Webhook-Signature': signature,
         'X-Webhook-Timestamp': Date.now().toString(),
@@ -137,7 +200,7 @@ export class WebhookManager {
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), webhook.timeout);
+      const timeoutId = setTimeout(() => controller.abort(), webhook.timeout!);
 
       try {
         const response = await fetch(webhook.url, {
@@ -162,13 +225,13 @@ export class WebhookManager {
         clearTimeout(timeoutId);
         throw error;
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Webhook call failed: ${webhook.id}`, {
         error: error.message,
         attempts: attempts + 1
       });
 
-      if (attempts < webhook.retries) {
+      if (attempts < webhook.retries!) {
         const delay = this.calculateRetryDelay(attempts);
         setTimeout(() => {
           this.queue.push({ ...item, attempts: attempts + 1 });
@@ -184,7 +247,7 @@ export class WebhookManager {
     }
   }
 
-  preparePayload(webhook, event) {
+  preparePayload(webhook: Webhook, event: EventData): WebhookPayload {
     return {
       webhookId: webhook.id,
       timestamp: Date.now(),
@@ -197,20 +260,20 @@ export class WebhookManager {
     };
   }
 
-  generateSignature(payload) {
+  generateSignature(payload: WebhookPayload): string {
     const hmac = crypto.createHmac('sha256', this.signingSecret);
     hmac.update(JSON.stringify(payload));
     return hmac.digest('hex');
   }
 
-  calculateRetryDelay(attempt) {
+  calculateRetryDelay(attempt: number): number {
     return Math.min(
       this.retryDelay * Math.pow(2, attempt),
       30000
     );
   }
 
-  async handleFailedWebhook(webhook, event, error) {
+  async handleFailedWebhook(webhook: Webhook, event: EventData, error: Error): Promise<void> {
     this.logger.error(`Webhook failed after all retries: ${webhook.id}`, {
       url: webhook.url,
       event: event.eventName,
@@ -226,18 +289,23 @@ export class WebhookManager {
     }
   }
 
-  getWebhookStats() {
-    const stats = {};
-    
+  getWebhookStats(): WebhookStats {
+    const stats: Record<string, {
+      url: string;
+      enabled: boolean;
+      events: string[];
+      createdAt: number;
+    }> = {};
+
     for (const [id, webhook] of this.webhooks.entries()) {
       stats[id] = {
         url: webhook.url,
-        enabled: webhook.enabled,
+        enabled: webhook.enabled || false,
         events: webhook.events,
-        createdAt: webhook.createdAt
+        createdAt: webhook.createdAt || 0
       };
     }
-    
+
     return {
       webhooks: stats,
       queueSize: this.queue.length,
@@ -245,7 +313,7 @@ export class WebhookManager {
     };
   }
 
-  verifySignature(payload, signature) {
+  verifySignature(payload: WebhookPayload, signature: string): boolean {
     // Fix BUG-042: Check buffer lengths before timingSafeEqual to avoid throwing
     // crypto.timingSafeEqual throws if buffer lengths don't match
     const expectedSignature = this.generateSignature(payload);
@@ -259,7 +327,7 @@ export class WebhookManager {
     return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
   }
 
-  clearQueue() {
+  clearQueue(): number {
     const size = this.queue.length;
     this.queue = [];
     this.logger.info(`Cleared ${size} items from webhook queue`);

@@ -1,8 +1,78 @@
 import { Logger } from '../utils/logger.js';
 import { validators } from '../utils/validators.js';
+import type { LoggerConfig } from '../types/config.js';
+
+export interface RuleEngineOptions {
+  logger?: LoggerConfig;
+  cacheEnabled?: boolean;
+  cacheExpiry?: number;
+}
+
+export interface RuleCondition {
+  field?: string;
+  operator?: string;
+  value?: any;
+  function?: string;
+  all?: RuleCondition[];
+  any?: RuleCondition[];
+  not?: RuleCondition;
+}
+
+export interface RuleAction {
+  type: string;
+  [key: string]: any;
+}
+
+export interface Rule {
+  name: string;
+  conditions: RuleCondition;
+  actions?: RuleAction[];
+  enabled?: boolean;
+  priority?: number;
+  stopOnMatch?: boolean;
+  createdAt?: number;
+}
+
+export interface RuleEvaluationResult {
+  ruleName: string;
+  passed: boolean;
+  reason?: string;
+  actions?: RuleAction[];
+  timestamp: number;
+  error?: string;
+}
+
+export interface AllRulesEvaluationResult {
+  results: RuleEvaluationResult[];
+  passed: RuleEvaluationResult[];
+  failed: RuleEvaluationResult[];
+  timestamp: number;
+}
+
+export interface RuleStats {
+  totalRules: number;
+  enabledRules: number;
+  cacheSize: number;
+}
+
+type Operator = (a: any, b: any) => boolean;
+type RuleFunction = (...args: any[]) => any;
+
+interface CacheEntry {
+  value: any;
+  timestamp: number;
+}
 
 export class RuleEngine {
-  constructor(options = {}) {
+  private logger: Logger;
+  private rules: Map<string, Rule>;
+  private operators: Record<string, Operator>;
+  private functions: Record<string, RuleFunction>;
+  private cache: Map<string, CacheEntry>;
+  private cacheEnabled: boolean;
+  private cacheExpiry: number;
+
+  constructor(options: RuleEngineOptions = {}) {
     this.logger = new Logger({ prefix: 'RuleEngine', ...options.logger });
     this.rules = new Map();
     this.operators = this.initializeOperators();
@@ -12,7 +82,7 @@ export class RuleEngine {
     this.cacheExpiry = options.cacheExpiry || 60000;
   }
 
-  initializeOperators() {
+  initializeOperators(): Record<string, Operator> {
     return {
       '==': (a, b) => a == b,
       '===': (a, b) => a === b,
@@ -49,22 +119,22 @@ export class RuleEngine {
     };
   }
 
-  initializeFunctions() {
+  initializeFunctions(): Record<string, RuleFunction> {
     return {
       now: () => Date.now(),
-      date: (str) => new Date(str).getTime(),
+      date: (str: string) => new Date(str).getTime(),
       abs: Math.abs,
       min: Math.min,
       max: Math.max,
       round: Math.round,
       floor: Math.floor,
       ceil: Math.ceil,
-      length: (val) => val?.length || 0,
-      lowercase: (str) => String(str).toLowerCase(),
-      uppercase: (str) => String(str).toUpperCase(),
-      trim: (str) => String(str).trim(),
+      length: (val: any) => val?.length || 0,
+      lowercase: (str: any) => String(str).toLowerCase(),
+      uppercase: (str: any) => String(str).toUpperCase(),
+      trim: (str: any) => String(str).trim(),
       random: () => Math.random(),
-      randomInt: (min, max) => {
+      randomInt: (min: number, max: number) => {
         // Fix BUG-003: Validate min <= max
         if (min > max) {
           [min, max] = [max, min]; // Swap if min > max
@@ -74,15 +144,15 @@ export class RuleEngine {
     };
   }
 
-  addRule(name, rule) {
+  addRule(name: string, rule: Omit<Rule, 'name'>): Rule {
     validators.isNonEmptyString(name, 'rule name');
     validators.isObject(rule, 'rule');
-    
+
     if (!rule.conditions) {
       throw new Error('Rule must have conditions');
     }
 
-    const processedRule = {
+    const processedRule: Rule = {
       name,
       ...rule,
       enabled: rule.enabled !== false,
@@ -92,12 +162,12 @@ export class RuleEngine {
 
     this.rules.set(name, processedRule);
     this.clearCache();
-    
+
     this.logger.debug(`Added rule: ${name}`, processedRule);
     return processedRule;
   }
 
-  removeRule(name) {
+  removeRule(name: string): boolean {
     const removed = this.rules.delete(name);
     if (removed) {
       this.clearCache();
@@ -106,11 +176,11 @@ export class RuleEngine {
     return removed;
   }
 
-  async evaluate(context, ruleName = null) {
+  async evaluate(context: any, ruleName: string | null = null): Promise<RuleEvaluationResult | AllRulesEvaluationResult> {
     validators.isObject(context, 'context');
 
-    const cacheKey = ruleName ? 
-      `${ruleName}:${JSON.stringify(context)}` : 
+    const cacheKey = ruleName ?
+      `${ruleName}:${JSON.stringify(context)}` :
       `all:${JSON.stringify(context)}`;
 
     if (this.cacheEnabled) {
@@ -118,7 +188,7 @@ export class RuleEngine {
       if (cached !== null) return cached;
     }
 
-    let results;
+    let results: RuleEvaluationResult | AllRulesEvaluationResult;
     if (ruleName) {
       results = await this.evaluateRule(ruleName, context);
     } else {
@@ -132,19 +202,19 @@ export class RuleEngine {
     return results;
   }
 
-  async evaluateRule(ruleName, context) {
+  async evaluateRule(ruleName: string, context: any): Promise<RuleEvaluationResult> {
     const rule = this.rules.get(ruleName);
     if (!rule) {
       throw new Error(`Rule not found: ${ruleName}`);
     }
 
     if (!rule.enabled) {
-      return { passed: false, reason: 'Rule disabled' };
+      return { ruleName, passed: false, reason: 'Rule disabled', timestamp: Date.now() };
     }
 
     try {
       const passed = await this.evaluateConditions(rule.conditions, context);
-      const result = {
+      const result: RuleEvaluationResult = {
         ruleName,
         passed,
         timestamp: Date.now()
@@ -155,21 +225,22 @@ export class RuleEngine {
       }
 
       return result;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error evaluating rule ${ruleName}`, { error });
       return {
         ruleName,
         passed: false,
-        error: error.message
+        error: error.message,
+        timestamp: Date.now()
       };
     }
   }
 
-  async evaluateAllRules(context) {
-    const results = [];
+  async evaluateAllRules(context: any): Promise<AllRulesEvaluationResult> {
+    const results: RuleEvaluationResult[] = [];
     const sortedRules = Array.from(this.rules.values())
       .filter(r => r.enabled)
-      .sort((a, b) => b.priority - a.priority);
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
     for (const rule of sortedRules) {
       const result = await this.evaluateRule(rule.name, context);
@@ -188,7 +259,7 @@ export class RuleEngine {
     };
   }
 
-  async evaluateConditions(conditions, context) {
+  async evaluateConditions(conditions: RuleCondition, context: any): Promise<boolean> {
     if (conditions.all) {
       const results = await Promise.all(
         conditions.all.map(cond => this.evaluateConditions(cond, context))
@@ -215,10 +286,10 @@ export class RuleEngine {
     throw new Error('Invalid condition structure');
   }
 
-  evaluateCondition(condition, context) {
+  evaluateCondition(condition: RuleCondition, context: any): boolean {
     const { field, operator, value, function: fn } = condition;
 
-    let fieldValue = this.getFieldValue(field, context);
+    let fieldValue = this.getFieldValue(field!, context);
     let compareValue = value;
 
     if (fn) {
@@ -233,7 +304,7 @@ export class RuleEngine {
       compareValue = this.getFieldValue(value.substring(1), context);
     }
 
-    const op = this.operators[operator];
+    const op = this.operators[operator!];
     if (!op) {
       throw new Error(`Unknown operator: ${operator}`);
     }
@@ -241,7 +312,7 @@ export class RuleEngine {
     return op(fieldValue, compareValue);
   }
 
-  getFieldValue(field, context) {
+  getFieldValue(field: string, context: any): any {
     // Fix: Protect against prototype pollution attacks
     const DANGEROUS_PROPS = ['__proto__', 'constructor', 'prototype'];
 
@@ -268,23 +339,23 @@ export class RuleEngine {
     return value;
   }
 
-  addOperator(name, fn) {
+  addOperator(name: string, fn: Operator): void {
     validators.isNonEmptyString(name, 'operator name');
     validators.isFunction(fn, 'operator function');
-    
+
     this.operators[name] = fn;
     this.clearCache();
   }
 
-  addFunction(name, fn) {
+  addFunction(name: string, fn: RuleFunction): void {
     validators.isNonEmptyString(name, 'function name');
     validators.isFunction(fn, 'function');
-    
+
     this.functions[name] = fn;
     this.clearCache();
   }
 
-  getFromCache(key) {
+  getFromCache(key: string): any {
     const cached = this.cache.get(key);
     if (!cached) return null;
 
@@ -296,30 +367,30 @@ export class RuleEngine {
     return cached.value;
   }
 
-  setCache(key, value) {
+  setCache(key: string, value: any): void {
     this.cache.set(key, {
       value,
       timestamp: Date.now()
     });
   }
 
-  clearCache() {
+  clearCache(): void {
     this.cache.clear();
   }
 
-  exportRules() {
+  exportRules(): Rule[] {
     return Array.from(this.rules.values());
   }
 
-  importRules(rules) {
+  importRules(rules: Rule[]): void {
     validators.isArray(rules, 'rules');
-    
+
     for (const rule of rules) {
       this.addRule(rule.name, rule);
     }
   }
 
-  getRuleStats() {
+  getRuleStats(): RuleStats {
     return {
       totalRules: this.rules.size,
       enabledRules: Array.from(this.rules.values()).filter(r => r.enabled).length,

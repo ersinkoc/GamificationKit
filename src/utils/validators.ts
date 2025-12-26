@@ -1,5 +1,8 @@
 export class ValidationError extends Error {
-  constructor(message, field, value) {
+  public readonly field: string;
+  public readonly value: any;
+
+  constructor(message: string, field: string, value: any) {
     super(message);
     this.name = 'ValidationError';
     this.field = field;
@@ -7,15 +10,17 @@ export class ValidationError extends Error {
   }
 }
 
+type ValidatorFunction = (value: any, ...args: any[]) => boolean;
+
 export const validators = {
-  isString(value, field) {
+  isString(value: any, field: string): boolean {
     if (typeof value !== 'string') {
       throw new ValidationError(`${field} must be a string`, field, value);
     }
     return true;
   },
 
-  isNumber(value, field) {
+  isNumber(value: any, field: string): boolean {
     if (typeof value !== 'number' || isNaN(value)) {
       throw new ValidationError(`${field} must be a number`, field, value);
     }
@@ -25,7 +30,7 @@ export const validators = {
     return true;
   },
 
-  isPositiveNumber(value, field) {
+  isPositiveNumber(value: any, field: string): boolean {
     this.isNumber(value, field);
     if (value <= 0) {
       throw new ValidationError(`${field} must be a positive number`, field, value);
@@ -33,7 +38,7 @@ export const validators = {
     return true;
   },
 
-  isInteger(value, field) {
+  isInteger(value: any, field: string): boolean {
     this.isNumber(value, field);
     if (!Number.isInteger(value)) {
       throw new ValidationError(`${field} must be an integer`, field, value);
@@ -41,42 +46,42 @@ export const validators = {
     return true;
   },
 
-  isArray(value, field) {
+  isArray(value: any, field: string): boolean {
     if (!Array.isArray(value)) {
       throw new ValidationError(`${field} must be an array`, field, value);
     }
     return true;
   },
 
-  isObject(value, field) {
+  isObject(value: any, field: string): boolean {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new ValidationError(`${field} must be an object`, field, value);
     }
     return true;
   },
 
-  isFunction(value, field) {
+  isFunction(value: any, field: string): boolean {
     if (typeof value !== 'function') {
       throw new ValidationError(`${field} must be a function`, field, value);
     }
     return true;
   },
 
-  isBoolean(value, field) {
+  isBoolean(value: any, field: string): boolean {
     if (typeof value !== 'boolean') {
       throw new ValidationError(`${field} must be a boolean`, field, value);
     }
     return true;
   },
 
-  isDate(value, field) {
+  isDate(value: any, field: string): boolean {
     if (!(value instanceof Date) || isNaN(value.getTime())) {
       throw new ValidationError(`${field} must be a valid date`, field, value);
     }
     return true;
   },
 
-  isEmail(value, field) {
+  isEmail(value: any, field: string): boolean {
     this.isString(value, field);
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(value)) {
@@ -85,7 +90,7 @@ export const validators = {
     return true;
   },
 
-  isUserId(value, field = 'userId') {
+  isUserId(value: any, field: string = 'userId'): boolean {
     this.isString(value, field);
     if (value.length === 0) {
       throw new ValidationError(`${field} cannot be empty`, field, value);
@@ -93,7 +98,7 @@ export const validators = {
     return true;
   },
 
-  isEventName(value, field = 'eventName') {
+  isEventName(value: any, field: string = 'eventName'): boolean {
     this.isString(value, field);
     const eventRegex = /^[a-zA-Z0-9._-]+$/;
     if (!eventRegex.test(value)) {
@@ -102,7 +107,7 @@ export const validators = {
     return true;
   },
 
-  isInRange(value, min, max, field) {
+  isInRange(value: any, min: number, max: number, field: string): boolean {
     this.isNumber(value, field);
     if (value < min || value > max) {
       throw new ValidationError(`${field} must be between ${min} and ${max}`, field, value);
@@ -110,14 +115,14 @@ export const validators = {
     return true;
   },
 
-  isInArray(value, allowedValues, field) {
+  isInArray(value: any, allowedValues: any[], field: string): boolean {
     if (!allowedValues.includes(value)) {
       throw new ValidationError(`${field} must be one of: ${allowedValues.join(', ')}`, field, value);
     }
     return true;
   },
 
-  hasProperties(obj, requiredProps, objectName = 'object') {
+  hasProperties(obj: any, requiredProps: string[], objectName: string = 'object'): boolean {
     this.isObject(obj, objectName);
     for (const prop of requiredProps) {
       if (!(prop in obj)) {
@@ -127,7 +132,7 @@ export const validators = {
     return true;
   },
 
-  isNonEmptyString(value, field) {
+  isNonEmptyString(value: any, field: string): boolean {
     this.isString(value, field);
     if (value.trim().length === 0) {
       throw new ValidationError(`${field} cannot be empty`, field, value);
@@ -135,15 +140,23 @@ export const validators = {
     return true;
   },
 
-  isOptional(value, validator, ...args) {
+  isOptional(value: any, validator: ValidatorFunction, ...args: any[]): boolean {
     if (value === undefined || value === null) return true;
     return validator.call(this, value, ...args);
   }
 };
 
-export function validateConfig(config, schema) {
-  const errors = [];
-  
+export interface ValidationSchema {
+  [key: string]: ValidatorFunction[];
+}
+
+export interface ValidationErrorWithErrors extends Error {
+  errors: ValidationError[];
+}
+
+export function validateConfig(config: any, schema: ValidationSchema): boolean {
+  const errors: ValidationError[] = [];
+
   for (const [key, rules] of Object.entries(schema)) {
     try {
       for (const rule of rules) {
@@ -160,7 +173,7 @@ export function validateConfig(config, schema) {
 
   if (errors.length > 0) {
     const message = `Configuration validation failed:\n${errors.map(e => `  - ${e.message}`).join('\n')}`;
-    const error = new Error(message);
+    const error = new Error(message) as ValidationErrorWithErrors;
     error.errors = errors;
     throw error;
   }

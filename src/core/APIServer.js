@@ -29,7 +29,12 @@ export class APIServer {
   }
 
   setupRoutes() {
+    // Health check endpoints (Kubernetes compatible)
     this.addRoute('GET', '/health', this.handleHealth.bind(this));
+    this.addRoute('GET', '/health/live', this.handleLiveness.bind(this));
+    this.addRoute('GET', '/health/ready', this.handleReadiness.bind(this));
+    this.addRoute('GET', '/health/detailed', this.handleDetailedHealth.bind(this));
+
     this.addRoute('GET', '/metrics', this.handleMetrics.bind(this));
     this.addRoute('GET', '/users/:userId', this.handleGetUser.bind(this));
     this.addRoute('GET', '/users/:userId/points', this.handleGetUserPoints.bind(this));
@@ -329,6 +334,40 @@ export class APIServer {
   async handleHealth(context) {
     const health = this.gamificationKit.getHealth();
     this.sendResponse(context.res, health);
+  }
+
+  async handleLiveness(context) {
+    try {
+      const liveness = await this.gamificationKit.getLiveness();
+      const statusCode = liveness.status === 'alive' ? 200 : 503;
+      context.res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      context.res.end(JSON.stringify(liveness));
+    } catch (error) {
+      this.sendError(context.res, 503, 'Liveness check failed');
+    }
+  }
+
+  async handleReadiness(context) {
+    try {
+      const readiness = await this.gamificationKit.getReadiness();
+      const statusCode = readiness.status === 'ready' ? 200 : 503;
+      context.res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      context.res.end(JSON.stringify(readiness));
+    } catch (error) {
+      this.sendError(context.res, 503, 'Readiness check failed');
+    }
+  }
+
+  async handleDetailedHealth(context) {
+    try {
+      const detailed = await this.gamificationKit.getDetailedHealth();
+      const statusCode = detailed.status === 'healthy' ? 200 :
+                        detailed.status === 'degraded' ? 200 : 503;
+      context.res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+      context.res.end(JSON.stringify(detailed));
+    } catch (error) {
+      this.sendError(context.res, 503, 'Health check failed');
+    }
   }
 
   async handleMetrics(context) {

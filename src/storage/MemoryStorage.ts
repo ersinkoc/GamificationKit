@@ -1,7 +1,34 @@
-import { StorageInterface } from './StorageInterface.js';
+import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
+import type { StorageKey, StorageValue } from '../types/storage.js';
+
+interface SortedSetMember {
+  member: string;
+  score: number;
+}
+
+interface MultiCommand {
+  method: string;
+  args: any[];
+}
+
+interface MultiObject {
+  set(key: string, value: any): MultiObject;
+  get(key: string): MultiObject;
+  zadd(key: string, score: number, member: string): MultiObject;
+  zrange(key: string, start: number, stop: number): MultiObject;
+  exec(): Promise<any[]>;
+}
 
 export class MemoryStorage extends StorageInterface {
-  constructor(options = {}) {
+  private data: Map<string, any>;
+  private sortedSets: Map<string, Map<string, number>>;
+  private lists: Map<string, any[]>;
+  private sets: Map<string, Set<any>>;
+  private hashes: Map<string, Map<string, any>>;
+  private expires: Map<string, number>;
+  private cleanupInterval: NodeJS.Timeout | null;
+
+  constructor(options: StorageOptions = {}) {
     super(options);
     this.data = new Map();
     this.sortedSets = new Map();
@@ -12,16 +39,15 @@ export class MemoryStorage extends StorageInterface {
     this.cleanupInterval = null;
   }
 
-  async connect() {
+  async connect(): Promise<void> {
     this.connected = true;
     // Only set cleanup interval in non-test environments
     if (process.env.NODE_ENV !== 'test') {
       this.cleanupInterval = setInterval(() => this.cleanupExpired(), 60000);
     }
-    return true;
   }
 
-  async disconnect() {
+  async disconnect(): Promise<void> {
     this.connected = false;
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
@@ -34,10 +60,9 @@ export class MemoryStorage extends StorageInterface {
     this.sets.clear();
     this.hashes.clear();
     this.expires.clear();
-    return true;
   }
 
-  cleanupExpired() {
+  private cleanupExpired(): void {
     const now = Date.now();
     for (const [key, expireTime] of this.expires.entries()) {
       if (expireTime <= now) {
@@ -52,13 +77,13 @@ export class MemoryStorage extends StorageInterface {
   }
 
   // Method for testing - manually trigger cleanup
-  async manualCleanup() {
+  async manualCleanup(): Promise<void> {
     this.cleanupExpired();
   }
 
-  isExpired(key) {
+  private isExpired(key: string): boolean {
     if (!this.expires.has(key)) return false;
-    const expireTime = this.expires.get(key);
+    const expireTime = this.expires.get(key)!;
     if (expireTime <= Date.now()) {
       this.data.delete(key);
       this.sortedSets.delete(key);
@@ -71,21 +96,20 @@ export class MemoryStorage extends StorageInterface {
     return false;
   }
 
-  async get(key) {
+  async get(key: StorageKey): Promise<StorageValue> {
     if (this.isExpired(key)) return null;
     return this.data.has(key) ? this.data.get(key) : null;
   }
 
-  async set(key, value, ttl) {
+  async set(key: StorageKey, value: StorageValue, ttl?: number): Promise<void> {
     // Convert undefined to null for consistency
     this.data.set(key, value === undefined ? null : value);
     if (ttl) {
       this.expires.set(key, Date.now() + ttl * 1000);
     }
-    return 'OK';
   }
 
-  async setex(key, seconds, value) {
+  async setex(key: StorageKey, seconds: number, value: StorageValue): Promise<string> {
     // Convert undefined to null for consistency
     this.data.set(key, value === undefined ? null : value);
     if (seconds <= 0) {
@@ -96,33 +120,33 @@ export class MemoryStorage extends StorageInterface {
     return 'OK';
   }
 
-  async delete(key) {
-    const existed = this.data.has(key) || 
-                   this.sortedSets.has(key) || 
-                   this.lists.has(key) || 
+  async delete(key: StorageKey): Promise<boolean> {
+    const existed = this.data.has(key) ||
+                   this.sortedSets.has(key) ||
+                   this.lists.has(key) ||
                    this.sets.has(key) ||
                    this.hashes.has(key);
-    
+
     this.data.delete(key);
     this.sortedSets.delete(key);
     this.lists.delete(key);
     this.sets.delete(key);
     this.hashes.delete(key);
     this.expires.delete(key);
-    
+
     return existed;
   }
 
-  async exists(key) {
+  async exists(key: StorageKey): Promise<boolean> {
     if (this.isExpired(key)) return false;
-    return this.data.has(key) || 
-           this.sortedSets.has(key) || 
-           this.lists.has(key) || 
+    return this.data.has(key) ||
+           this.sortedSets.has(key) ||
+           this.lists.has(key) ||
            this.sets.has(key) ||
            this.hashes.has(key);
   }
 
-  async increment(key, amount = 1) {
+  async increment(key: StorageKey, amount: number = 1): Promise<number> {
     const current = await this.get(key) || 0;
     const newValue = Number(current) + amount;
 
@@ -136,26 +160,26 @@ export class MemoryStorage extends StorageInterface {
     return newValue;
   }
 
-  async decrement(key, amount = 1) {
+  async decrement(key: StorageKey, amount: number = 1): Promise<number> {
     return this.increment(key, -amount);
   }
 
-  async mget(keys) {
-    const results = {};
+  async mget(keys: StorageKey[]): Promise<Record<string, any>> {
+    const results: Record<string, any> = {};
     for (const key of keys) {
       results[key] = await this.get(key);
     }
     return results;
   }
 
-  async mset(entries) {
+  async mset(entries: Record<string, any> | Array<[StorageKey, StorageValue]>): Promise<void> {
     for (const [key, value] of Object.entries(entries)) {
       await this.set(key, value);
     }
-    return true;
+    return;
   }
 
-  async keys(pattern) {
+  async keys(pattern: string = '*'): Promise<StorageKey[]> {
     // Fix BUG-026: Escape regex special characters before converting wildcards
     // This prevents regex injection and ensures patterns like 'user.name' match literally
     const escaped = pattern
@@ -170,14 +194,14 @@ export class MemoryStorage extends StorageInterface {
       ...this.sets.keys(),
       ...this.hashes.keys()
     ]);
-    
+
     return Array.from(allKeys).filter(key => {
       if (this.isExpired(key)) return false;
       return regex.test(key);
     });
   }
 
-  async clear(pattern) {
+  async clear(pattern: string = '*'): Promise<number> {
     const keys = await this.keys(pattern);
     for (const key of keys) {
       await this.delete(key);
@@ -185,13 +209,13 @@ export class MemoryStorage extends StorageInterface {
     return keys.length;
   }
 
-  async zadd(key, scoreOrMembers, member) {
+  async zadd(key: StorageKey, scoreOrMembers: number | SortedSetMember[], member?: string): Promise<number> {
     if (!this.sortedSets.has(key)) {
       this.sortedSets.set(key, new Map());
     }
-    const sortedSet = this.sortedSets.get(key);
+    const sortedSet = this.sortedSets.get(key)!;
     let added = 0;
-    
+
     if (Array.isArray(scoreOrMembers)) {
       // Multiple members
       for (const item of scoreOrMembers) {
@@ -202,26 +226,26 @@ export class MemoryStorage extends StorageInterface {
       }
     } else {
       // Single member
-      if (!sortedSet.has(member)) {
+      if (!sortedSet.has(member!)) {
         added = 1;
       }
-      sortedSet.set(member, scoreOrMembers);
+      sortedSet.set(member!, scoreOrMembers);
     }
     return added;
   }
 
-  async zrem(key, member) {
+  async zrem(key: StorageKey, member: any): Promise<number> {
     if (!this.sortedSets.has(key)) return 0;
-    return this.sortedSets.get(key).delete(member) ? 1 : 0;
+    return this.sortedSets.get(key)!.delete(member) ? 1 : 0;
   }
 
-  async zrange(key, start, stop, options = false) {
+  async zrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions | boolean = false): Promise<any[]> {
     if (!this.sortedSets.has(key)) return [];
 
     // Handle both boolean and options object formats
     const withScores = typeof options === 'object' && options !== null ? options.withScores : options;
 
-    const sortedSet = this.sortedSets.get(key);
+    const sortedSet = this.sortedSets.get(key)!;
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => a[1] - b[1]);
 
@@ -236,13 +260,13 @@ export class MemoryStorage extends StorageInterface {
     return result.map(([member]) => member);
   }
 
-  async zrevrange(key, start, stop, options = false) {
+  async zrevrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions | boolean = false): Promise<any[]> {
     if (!this.sortedSets.has(key)) return [];
 
     // Handle both boolean and options object formats
     const withScores = typeof options === 'object' && options !== null ? options.withScores : options;
 
-    const sortedSet = this.sortedSets.get(key);
+    const sortedSet = this.sortedSets.get(key)!;
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => b[1] - a[1]);
 
@@ -257,40 +281,40 @@ export class MemoryStorage extends StorageInterface {
     return result.map(([member]) => member);
   }
 
-  async zrank(key, member) {
+  async zrank(key: StorageKey, member: any): Promise<number | null> {
     if (!this.sortedSets.has(key)) return null;
-    
-    const sortedSet = this.sortedSets.get(key);
+
+    const sortedSet = this.sortedSets.get(key)!;
     if (!sortedSet.has(member)) return null;
-    
+
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => a[1] - b[1]);
-    
+
     return entries.findIndex(([m]) => m === member);
   }
 
-  async zrevrank(key, member) {
+  async zrevrank(key: StorageKey, member: any): Promise<number | null> {
     if (!this.sortedSets.has(key)) return null;
-    
-    const sortedSet = this.sortedSets.get(key);
+
+    const sortedSet = this.sortedSets.get(key)!;
     if (!sortedSet.has(member)) return null;
-    
+
     const entries = Array.from(sortedSet.entries())
       .sort((a, b) => b[1] - a[1]);
-    
+
     return entries.findIndex(([m]) => m === member);
   }
 
-  async zscore(key, member) {
+  async zscore(key: StorageKey, member: any): Promise<number | null> {
     if (!this.sortedSets.has(key)) return null;
-    const sortedSet = this.sortedSets.get(key);
-    return sortedSet.has(member) ? sortedSet.get(member) : null;
+    const sortedSet = this.sortedSets.get(key)!;
+    return sortedSet.has(member) ? sortedSet.get(member)! : null;
   }
 
-  async zcount(key, min, max) {
+  async zcount(key: StorageKey, min: string | number, max: string | number): Promise<number> {
     if (!this.sortedSets.has(key)) return 0;
 
-    const sortedSet = this.sortedSets.get(key);
+    const sortedSet = this.sortedSets.get(key)!;
     let count = 0;
 
     // Handle special Redis values '-inf' and '+inf'
@@ -306,79 +330,79 @@ export class MemoryStorage extends StorageInterface {
     return count;
   }
 
-  async zcard(key) {
+  async zcard(key: StorageKey): Promise<number> {
     if (!this.sortedSets.has(key)) return 0;
-    return this.sortedSets.get(key).size;
+    return this.sortedSets.get(key)!.size;
   }
 
-  async zincrby(key, increment, member) {
+  async zincrby(key: StorageKey, increment: number, member: any): Promise<number> {
     if (!this.sortedSets.has(key)) {
       this.sortedSets.set(key, new Map());
     }
-    
-    const sortedSet = this.sortedSets.get(key);
+
+    const sortedSet = this.sortedSets.get(key)!;
     const currentScore = sortedSet.get(member) || 0;
     const newScore = currentScore + increment;
     sortedSet.set(member, newScore);
-    
+
     return newScore;
   }
 
-  async lpush(key, ...values) {
+  async lpush(key: StorageKey, ...values: any[]): Promise<number> {
     if (!this.lists.has(key)) {
       this.lists.set(key, []);
     }
-    const list = this.lists.get(key);
+    const list = this.lists.get(key)!;
     // Fix BUG-009: Clone array before reversing to avoid mutating input
     list.unshift(...[...values].reverse());
     return list.length;
   }
 
-  async rpush(key, ...values) {
+  async rpush(key: StorageKey, ...values: any[]): Promise<number> {
     if (!this.lists.has(key)) {
       this.lists.set(key, []);
     }
-    const list = this.lists.get(key);
+    const list = this.lists.get(key)!;
     // Push values to the right (end) of the list
     list.push(...values);
     return list.length;
   }
 
-  async lpop(key) {
+  async lpop(key: StorageKey): Promise<any> {
     if (!this.lists.has(key)) return null;
     // Fix BUG-010: Check undefined instead of falsy to preserve 0, false, ""
-    const value = this.lists.get(key).shift();
+    const value = this.lists.get(key)!.shift();
     return value !== undefined ? value : null;
   }
 
-  async rpop(key) {
+  async rpop(key: StorageKey): Promise<any> {
     if (!this.lists.has(key)) return null;
     // Fix BUG-010: Check undefined instead of falsy to preserve 0, false, ""
-    const value = this.lists.get(key).pop();
+    const value = this.lists.get(key)!.pop();
     return value !== undefined ? value : null;
   }
 
-  async lrange(key, start, stop) {
+  async lrange(key: StorageKey, start: number, stop: number): Promise<any[]> {
     if (!this.lists.has(key)) return [];
-    
-    const list = this.lists.get(key);
+
+    const list = this.lists.get(key)!;
     const actualStart = start < 0 ? list.length + start : start;
     const actualStop = stop < 0 ? list.length + stop + 1 : stop + 1;
-    
+
     return list.slice(actualStart, actualStop);
   }
 
-  async llen(key) {
+  async llen(key: StorageKey): Promise<number> {
     if (!this.lists.has(key)) return 0;
-    return this.lists.get(key).length;
+    return this.lists.get(key)!.length;
   }
 
-  async lrem(key, count, value) {
+  async lrem(key: StorageKey, count: number, value: any): Promise<number> {
     if (!this.lists.has(key)) return 0;
-    
-    const list = this.lists.get(key);
+
+    const list = this.lists.get(key)!;
     let removed = 0;
-    
+
     if (count === 0) {
       // Remove all occurrences
       const newList = list.filter(item => {
@@ -416,149 +440,148 @@ export class MemoryStorage extends StorageInterface {
       }
       this.lists.set(key, newList);
     }
-    
+
     return removed;
   }
 
-  async sadd(key, ...members) {
+  async sadd(key: StorageKey, ...members: any[]): Promise<number> {
     if (!this.sets.has(key)) {
       this.sets.set(key, new Set());
     }
-    
-    const set = this.sets.get(key);
+
+    const set = this.sets.get(key)!;
     let added = 0;
-    
+
     // Handle array of members
     const membersToAdd = members.length === 1 && Array.isArray(members[0]) ? members[0] : members;
-    
+
     for (const member of membersToAdd) {
       if (!set.has(member)) {
         set.add(member);
         added++;
       }
     }
-    
+
     return added;
   }
 
-  async srem(key, ...members) {
+  async srem(key: StorageKey, ...members: any[]): Promise<number> {
     if (!this.sets.has(key)) return 0;
-    
-    const set = this.sets.get(key);
+
+    const set = this.sets.get(key)!;
     let removed = 0;
-    
+
     for (const member of members) {
       if (set.delete(member)) {
         removed++;
       }
     }
-    
+
     return removed;
   }
 
-  async smembers(key) {
+  async smembers(key: StorageKey): Promise<any[]> {
     if (!this.sets.has(key)) return [];
-    return Array.from(this.sets.get(key));
+    return Array.from(this.sets.get(key)!);
   }
 
-  async sismember(key, member) {
+  async sismember(key: StorageKey, member: any): Promise<boolean> {
     if (!this.sets.has(key)) return false;
-    return this.sets.get(key).has(member);
+    return this.sets.get(key)!.has(member);
   }
 
-  async scard(key) {
+  async scard(key: StorageKey): Promise<number> {
     if (!this.sets.has(key)) return 0;
-    return this.sets.get(key).size;
+    return this.sets.get(key)!.size;
   }
 
-  async hset(key, field, value) {
+  async hset(key: StorageKey, field: string, value: any): Promise<void> {
     if (!this.hashes.has(key)) {
       this.hashes.set(key, new Map());
     }
-    this.hashes.get(key).set(field, value);
-    return true;
+    this.hashes.get(key)!.set(field, value);
   }
 
-  async hget(key, field) {
+  async hget(key: StorageKey, field: string): Promise<any> {
     if (!this.hashes.has(key)) return null;
-    const hash = this.hashes.get(key);
+    const hash = this.hashes.get(key)!;
     return hash.has(field) ? hash.get(field) : null;
   }
 
-  async hgetall(key) {
+  async hgetall(key: StorageKey): Promise<Record<string, any>> {
     if (!this.hashes.has(key)) return {};
-    
-    const hash = this.hashes.get(key);
-    const result = {};
-    
+
+    const hash = this.hashes.get(key)!;
+    const result: Record<string, any> = {};
+
     for (const [field, value] of hash) {
       result[field] = value;
     }
-    
+
     return result;
   }
 
-  async hmset(key, fields) {
+  async hmset(key: StorageKey, fields: Record<string, any>): Promise<string> {
     if (!this.hashes.has(key)) {
       this.hashes.set(key, new Map());
     }
-    const hash = this.hashes.get(key);
-    
+    const hash = this.hashes.get(key)!;
+
     for (const [field, value] of Object.entries(fields)) {
       hash.set(field, value);
     }
     return 'OK';
   }
 
-  async hmget(key, fields) {
+  async hmget(key: StorageKey, fields: string[]): Promise<any[]> {
     if (!this.hashes.has(key)) {
       return fields.map(() => null);
     }
-    
-    const hash = this.hashes.get(key);
+
+    const hash = this.hashes.get(key)!;
     return fields.map(field => hash.get(field) || null);
   }
 
-  async hexists(key, field) {
+  async hexists(key: StorageKey, field: string): Promise<boolean> {
     if (!this.hashes.has(key)) return false;
-    return this.hashes.get(key).has(field);
+    return this.hashes.get(key)!.has(field);
   }
 
-  async hdel(key, ...fields) {
+  async hdel(key: StorageKey, ...fields: string[]): Promise<number> {
     if (!this.hashes.has(key)) return 0;
-    
-    const hash = this.hashes.get(key);
+
+    const hash = this.hashes.get(key)!;
     let deleted = 0;
-    
+
     for (const field of fields) {
       if (hash.delete(field)) {
         deleted++;
       }
     }
-    
+
     return deleted;
   }
 
-  async hincrby(key, field, increment) {
+  async hincrby(key: StorageKey, field: string, increment: number): Promise<number> {
     if (!this.hashes.has(key)) {
       this.hashes.set(key, new Map());
     }
-    
-    const hash = this.hashes.get(key);
+
+    const hash = this.hashes.get(key)!;
     const current = hash.get(field);
-    
+
     if (current !== null && current !== undefined && isNaN(Number(current))) {
       throw new Error('Hash field is not a number');
     }
-    
+
     const currentNum = Number(current || 0);
     const newValue = currentNum + increment;
     hash.set(field, newValue);
-    
+
     return newValue;
   }
 
-  async expire(key, seconds) {
+  async expire(key: StorageKey, seconds: number): Promise<boolean> {
     if (await this.exists(key)) {
       this.expires.set(key, Date.now() + seconds * 1000);
       return true;
@@ -566,22 +589,22 @@ export class MemoryStorage extends StorageInterface {
     return false;
   }
 
-  async ttl(key) {
+  async ttl(key: StorageKey): Promise<number> {
     if (!this.expires.has(key)) return -1;
-    
-    const expireTime = this.expires.get(key);
+
+    const expireTime = this.expires.get(key)!;
     const ttl = Math.floor((expireTime - Date.now()) / 1000);
-    
+
     return ttl > 0 ? ttl : -2;
   }
 
-  async transaction(operations) {
-    const results = [];
-    
+  async transaction(operations: MultiCommand[]): Promise<any[]> {
+    const results: any[] = [];
+
     try {
       for (const op of operations) {
         const { method, args } = op;
-        const result = await this[method](...args);
+        const result = await (this as any)[method](...args);
         results.push(result);
       }
       return results;
@@ -590,37 +613,37 @@ export class MemoryStorage extends StorageInterface {
     }
   }
 
-  multi() {
-    const commands = [];
+  multi(): MultiObject {
+    const commands: MultiCommand[] = [];
     const self = this;
-    
-    const multiObject = {
-      set: (key, value) => {
+
+    const multiObject: MultiObject = {
+      set: (key: string, value: any) => {
         commands.push({ method: 'set', args: [key, value] });
         return multiObject;
       },
-      get: (key) => {
+      get: (key: string) => {
         commands.push({ method: 'get', args: [key] });
         return multiObject;
       },
-      zadd: (key, score, member) => {
+      zadd: (key: string, score: number, member: string) => {
         commands.push({ method: 'zadd', args: [key, score, member] });
         return multiObject;
       },
-      zrange: (key, start, stop) => {
+      zrange: (key: string, start: number, stop: number) => {
         commands.push({ method: 'zrange', args: [key, start, stop] });
         return multiObject;
       },
       async exec() {
-        const results = [];
+        const results: any[] = [];
         for (const cmd of commands) {
-          const result = await self[cmd.method](...cmd.args);
+          const result = await (self as any)[cmd.method](...cmd.args);
           results.push(result);
         }
         return results;
       }
     };
-    
+
     return multiObject;
   }
 }

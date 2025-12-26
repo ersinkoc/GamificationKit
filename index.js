@@ -13,3 +13,13 @@ export { MongoStorage } from './src/storage/MongoStorage.js';
 export { PostgresStorage } from './src/storage/PostgresStorage.js';
 
 export { gamificationRoutes } from './src/middleware/routes.js';
+
+export { SecretManager } from './src/config/SecretManager.js';
+export { HealthChecker } from './src/core/HealthChecker.js';
+export { RateLimiter, createRateLimitMiddleware } from './src/middleware/RateLimiter.js';
+export { ValidationMiddleware, commonSchemas, endpointSchemas } from './src/middleware/ValidationMiddleware.js';
+export {
+  setupGracefulShutdown,
+  setupProcessMonitoring,
+  setupMemoryLeakDetection
+} from './src/utils/processHandlers.js';

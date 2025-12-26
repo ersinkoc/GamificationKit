@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "removeComments": true,
+    "noEmit": false
+  },
+  "include": [
+    "src/**/*",
+    "client/**/*",
+    "index.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "tests",
+    "examples",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

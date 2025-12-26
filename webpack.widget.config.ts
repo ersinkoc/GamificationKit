@@ -1,12 +1,13 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { Configuration } from 'webpack';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default {
+const config: Configuration = {
   mode: 'production',
-  entry: './client/widget/widget.js',
+  entry: './client/widget/widget.ts',
   output: {
     filename: 'gamification-widget.js',
     path: path.resolve(__dirname, 'dist'),
@@ -20,12 +21,13 @@ export default {
   module: {
     rules: [
       {
-        test: /\.js$/,
+        test: /\.tsx?$/,
         exclude: /node_modules/,
         use: {
-          loader: 'babel-loader',
+          loader: 'ts-loader',
           options: {
-            presets: ['@babel/preset-env']
+            configFile: 'tsconfig.build.json',
+            transpileOnly: true
           }
         }
       },
@@ -36,10 +38,9 @@ export default {
     ]
   },
   resolve: {
-    extensions: ['.js', '.css']
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.css']
   },
   externals: {
-    // Don't bundle these libraries
     'react': {
       commonjs: 'react',
       commonjs2: 'react',
@@ -54,3 +55,5 @@ export default {
     }
   }
 };
+
+export default config;

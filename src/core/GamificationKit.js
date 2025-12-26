@@ -3,18 +3,20 @@ import { RuleEngine } from './RuleEngine.js';
 import { APIServer } from './APIServer.js';
 import { WebhookManager } from './WebhookManager.js';
 import { MetricsCollector } from './MetricsCollector.js';
+import { HealthChecker } from './HealthChecker.js';
 import { Logger } from '../utils/logger.js';
 import { validators, validateConfig } from '../utils/validators.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
+import { SecretManager } from '../config/SecretManager.js';
 
 export class GamificationKit {
   constructor(config = {}) {
     this.config = this.validateAndMergeConfig(config);
-    this.logger = new Logger({ 
-      prefix: 'GamificationKit', 
-      ...this.config.logger 
+    this.logger = new Logger({
+      prefix: 'GamificationKit',
+      ...this.config.logger
     });
-    
+
     this.modules = new Map();
     this.storage = null;
     this.eventManager = null;
@@ -22,7 +24,10 @@ export class GamificationKit {
     this.apiServer = null;
     this.webhookManager = null;
     this.metricsCollector = null;
+    this.healthChecker = null;
+    this.secretManager = null;
     this.initialized = false;
+    this.isShuttingDown = false;
 
     this.logger.info('GamificationKit instance created');
   }
@@ -54,6 +59,13 @@ export class GamificationKit {
       metrics: {
         enabled: true,
         collectInterval: 60000
+      },
+      health: {
+        enabled: true,
+        checkInterval: 30000,
+        memoryThreshold: 90,
+        eventLoopLagThreshold: 100,
+        storageResponseThreshold: 1000
       },
       logger: {
         level: 'info',
@@ -93,6 +105,9 @@ export class GamificationKit {
     try {
       this.logger.info('Initializing GamificationKit...');
 
+      // Initialize secret manager first
+      await this.initializeSecretManager();
+
       await this.initializeStorage();
       this.initializeEventManager();
       this.initializeRuleEngine();
@@ -103,6 +118,10 @@ export class GamificationKit {
 
       if (this.config.metrics.enabled) {
         this.initializeMetricsCollector();
+      }
+
+      if (this.config.health.enabled) {
+        await this.initializeHealthChecker();
       }
 
       await this.initializeModules();
@@ -158,6 +177,46 @@ export class GamificationKit {
     this.logger.info(`Storage initialized: ${type}`);
   }
 
+  async initializeSecretManager() {
+    const secretBackend = process.env.VAULT_ENABLED === 'true' ? 'vault' :
+                         process.env.AWS_SECRETS_ENABLED === 'true' ? 'aws' :
+                         process.env.AZURE_KEYVAULT_ENABLED === 'true' ? 'azure' :
+                         'env';
+
+    this.secretManager = new SecretManager({
+      backend: secretBackend,
+      logger: this.config.logger
+    });
+
+    await this.secretManager.initialize();
+
+    // Validate required secrets for production
+    if (process.env.NODE_ENV === 'production') {
+      const requiredSecrets = ['API_KEY'];
+
+      if (this.config.api.enabled) {
+        requiredSecrets.push('ADMIN_API_KEYS');
+      }
+
+      if (this.config.storage.type !== 'memory') {
+        // Add storage-specific password requirements
+        if (this.config.storage.type === 'redis' && this.config.storage.password) {
+          requiredSecrets.push('REDIS_PASSWORD');
+        }
+        if (this.config.storage.type === 'mongodb' && this.config.storage.password) {
+          requiredSecrets.push('MONGODB_PASSWORD');
+        }
+        if (this.config.storage.type === 'postgres') {
+          requiredSecrets.push('POSTGRES_PASSWORD');
+        }
+      }
+
+      this.secretManager.validateRequiredSecrets(requiredSecrets);
+    }
+
+    this.logger.info(`SecretManager initialized with backend: ${secretBackend}`);
+  }
+
   initializeEventManager() {
     this.eventManager = new EventManager({
       logger: this.config.logger,
@@ -191,6 +250,19 @@ export class GamificationKit {
     });
     this.metricsCollector.start();
     this.logger.info('MetricsCollector initialized');
+  }
+
+  async initializeHealthChecker() {
+    this.healthChecker = new HealthChecker({
+      logger: this.config.logger,
+      gamificationKit: this,
+      checkInterval: this.config.health.checkInterval,
+      memoryThreshold: this.config.health.memoryThreshold,
+      eventLoopLagThreshold: this.config.health.eventLoopLagThreshold,
+      storageResponseThreshold: this.config.health.storageResponseThreshold
+    });
+    await this.healthChecker.initialize();
+    this.logger.info('HealthChecker initialized');
   }
 
   async initializeWebSocketServer() {
@@ -404,37 +476,95 @@ export class GamificationKit {
     return koaMiddleware(this);
   }
 
-  async shutdown() {
-    this.logger.info('Shutting down GamificationKit...');
+  async shutdown(timeout = 30000) {
+    if (this.isShuttingDown) {
+      this.logger.warn('Shutdown already in progress');
+      return;
+    }
 
+    this.isShuttingDown = true;
+    this.logger.info('Initiating graceful shutdown...');
+
+    const shutdownPromise = this._performShutdown();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Shutdown timeout exceeded')), timeout)
+    );
+
+    try {
+      await Promise.race([shutdownPromise, timeoutPromise]);
+      this.logger.info('Graceful shutdown completed successfully');
+    } catch (error) {
+      this.logger.error('Shutdown failed or timed out', { error: error.message });
+      throw error;
+    } finally {
+      this.isShuttingDown = false;
+    }
+  }
+
+  async _performShutdown() {
+    // 1. Stop accepting new requests
     if (this.apiServer) {
+      this.logger.info('Stopping API server...');
       await this.apiServer.stop();
     }
 
+    // 2. Close WebSocket connections
     if (this.websocketServer) {
+      this.logger.info('Closing WebSocket connections...');
       await this.websocketServer.stop();
     }
 
+    // 3. Flush pending webhooks
+    if (this.webhookManager) {
+      this.logger.info('Flushing pending webhooks...');
+      await this.webhookManager.flush();
+    }
+
+    // 4. Stop metrics collection
     if (this.metricsCollector) {
+      this.logger.info('Stopping metrics collector...');
       this.metricsCollector.stop();
     }
 
+    // 5. Shutdown modules
+    this.logger.info('Shutting down modules...');
     for (const [name, module] of this.modules) {
       if (module.shutdown) {
-        await module.shutdown();
+        try {
+          await module.shutdown();
+          this.logger.debug(`Module ${name} shut down successfully`);
+        } catch (error) {
+          this.logger.error(`Failed to shutdown module ${name}`, { error: error.message });
+        }
       }
     }
 
+    // 6. Stop health checker
+    if (this.healthChecker) {
+      this.logger.info('Stopping health checker...');
+      this.healthChecker.shutdown();
+    }
+
+    // 7. Close storage connection
     if (this.storage) {
+      this.logger.info('Disconnecting from storage...');
       await this.storage.disconnect();
     }
 
+    // 8. Destroy event manager
     if (this.eventManager) {
+      this.logger.info('Destroying event manager...');
       this.eventManager.destroy();
     }
 
+    // 9. Clear secrets from memory
+    if (this.secretManager) {
+      this.logger.info('Clearing secrets from memory...');
+      this.secretManager.clear();
+    }
+
     this.initialized = false;
-    this.logger.info('GamificationKit shut down successfully');
+    this.logger.info('GamificationKit shutdown sequence completed');
   }
 
   getMetrics() {
@@ -444,6 +574,9 @@ export class GamificationKit {
     return this.metricsCollector.getMetrics();
   }
 
+  /**
+   * Get basic health status (legacy method, kept for compatibility)
+   */
   getHealth() {
     return {
       status: this.initialized ? 'healthy' : 'unhealthy',
@@ -453,5 +586,41 @@ export class GamificationKit {
       uptime: process.uptime(),
       timestamp: Date.now()
     };
+  }
+
+  /**
+   * Get liveness probe (K8s compatible)
+   */
+  async getLiveness() {
+    if (!this.healthChecker) {
+      return {
+        status: 'alive',
+        timestamp: new Date().toISOString()
+      };
+    }
+    return this.healthChecker.getLiveness();
+  }
+
+  /**
+   * Get readiness probe (K8s compatible)
+   */
+  async getReadiness() {
+    if (!this.healthChecker) {
+      return {
+        status: this.initialized ? 'ready' : 'not_ready',
+        timestamp: new Date().toISOString()
+      };
+    }
+    return this.healthChecker.getReadiness();
+  }
+
+  /**
+   * Get detailed health status with all checks
+   */
+  async getDetailedHealth() {
+    if (!this.healthChecker) {
+      return this.getHealth();
+    }
+    return this.healthChecker.getDetailedHealth();
   }
 }

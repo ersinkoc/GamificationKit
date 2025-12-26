@@ -1,9 +1,53 @@
 import { EventEmitter } from 'events';
 import { Logger } from '../utils/logger.js';
 import { validators } from '../utils/validators.js';
+import type { LoggerConfig } from '../types/config.js';
+
+export interface EventManagerOptions {
+  logger?: LoggerConfig;
+  maxListeners?: number;
+  enableHistory?: boolean;
+  historyLimit?: number;
+  maxEventTypes?: number;
+}
+
+export interface EventData {
+  eventName: string;
+  data: any;
+  timestamp: number;
+  id: string;
+}
+
+export interface EmitResult {
+  eventId: string;
+  listenersCount: number;
+  errors: any[];
+}
+
+export interface WildcardHandler {
+  regex: RegExp;
+  handler: (data: EventData) => void | Promise<void>;
+  pattern: string;
+}
+
+export interface EventStats {
+  [eventName: string]: {
+    count: number;
+    lastEmitted: number | undefined;
+    listeners: number;
+  };
+}
 
 export class EventManager extends EventEmitter {
-  constructor(options = {}) {
+  private logger: Logger;
+  private eventHistory: Map<string, EventData[]>;
+  private wildcardHandlers: Map<string, WildcardHandler[]>;
+  private maxListeners: number;
+  private enableHistory: boolean;
+  private historyLimit: number;
+  private maxEventTypes: number;
+
+  constructor(options: EventManagerOptions = {}) {
     super();
     this.logger = new Logger({ prefix: 'EventManager', ...options.logger });
     this.eventHistory = new Map();
@@ -16,10 +60,10 @@ export class EventManager extends EventEmitter {
     this.setMaxListeners(this.maxListeners);
   }
 
-  async emitAsync(eventName, data = {}) {
+  async emitAsync(eventName: string, data: any = {}): Promise<EmitResult> {
     validators.isEventName(eventName);
-    
-    const eventData = {
+
+    const eventData: EventData = {
       eventName,
       data,
       timestamp: Date.now(),
@@ -43,7 +87,7 @@ export class EventManager extends EventEmitter {
     );
 
     const errors = results
-      .filter(r => r.status === 'rejected')
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       .map(r => r.reason);
 
     if (errors.length > 0) {
@@ -57,26 +101,26 @@ export class EventManager extends EventEmitter {
     };
   }
 
-  onWildcard(pattern, handler) {
+  onWildcard(pattern: string, handler: (data: EventData) => void | Promise<void>): () => void {
     validators.isFunction(handler, 'handler');
-    
+
     const regex = this.patternToRegex(pattern);
     if (!this.wildcardHandlers.has(pattern)) {
       this.wildcardHandlers.set(pattern, []);
     }
-    
-    this.wildcardHandlers.get(pattern).push({
+
+    this.wildcardHandlers.get(pattern)!.push({
       regex,
       handler,
       pattern
     });
 
     this.logger.debug(`Registered wildcard handler for pattern: ${pattern}`);
-    
+
     return () => this.removeWildcardHandler(pattern, handler);
   }
 
-  removeWildcardHandler(pattern, handler) {
+  removeWildcardHandler(pattern: string, handler: (data: EventData) => void | Promise<void>): void {
     const handlers = this.wildcardHandlers.get(pattern);
     if (!handlers) return;
 
@@ -89,9 +133,9 @@ export class EventManager extends EventEmitter {
     }
   }
 
-  getWildcardListeners(eventName) {
-    const listeners = [];
-    
+  getWildcardListeners(eventName: string): Array<(data: EventData) => void | Promise<void>> {
+    const listeners: Array<(data: EventData) => void | Promise<void>> = [];
+
     for (const handlers of this.wildcardHandlers.values()) {
       for (const { regex, handler } of handlers) {
         if (regex.test(eventName)) {
@@ -99,11 +143,11 @@ export class EventManager extends EventEmitter {
         }
       }
     }
-    
+
     return listeners;
   }
 
-  patternToRegex(pattern) {
+  patternToRegex(pattern: string): RegExp {
     // Fix HIGH-003: Validate pattern to prevent ReDoS attacks
     const MAX_PATTERN_LENGTH = 100;
     const MAX_WILDCARDS = 10;
@@ -132,11 +176,11 @@ export class EventManager extends EventEmitter {
     return new RegExp(`^${escaped}$`);
   }
 
-  generateEventId() {
+  generateEventId(): string {
     return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 
-  addToHistory(eventName, eventData) {
+  addToHistory(eventName: string, eventData: EventData): void {
     if (!this.eventHistory.has(eventName)) {
       // Fix HIGH-002: Enforce max event types to prevent unbounded memory growth
       if (this.eventHistory.size >= this.maxEventTypes) {
@@ -148,7 +192,7 @@ export class EventManager extends EventEmitter {
       this.eventHistory.set(eventName, []);
     }
 
-    const history = this.eventHistory.get(eventName);
+    const history = this.eventHistory.get(eventName)!;
     history.push(eventData);
 
     if (history.length > this.historyLimit) {
@@ -156,24 +200,24 @@ export class EventManager extends EventEmitter {
     }
   }
 
-  getEventHistory(eventName, limit = 100) {
+  getEventHistory(eventName: string, limit: number = 100): EventData[] {
     const history = this.eventHistory.get(eventName) || [];
     return history.slice(-limit);
   }
 
-  getAllEventHistory(limit = 100) {
-    const allEvents = [];
-    
+  getAllEventHistory(limit: number = 100): EventData[] {
+    const allEvents: EventData[] = [];
+
     for (const events of this.eventHistory.values()) {
       allEvents.push(...events);
     }
-    
+
     return allEvents
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(-limit);
   }
 
-  clearHistory(eventName) {
+  clearHistory(eventName?: string): void {
     if (eventName) {
       this.eventHistory.delete(eventName);
     } else {
@@ -181,9 +225,9 @@ export class EventManager extends EventEmitter {
     }
   }
 
-  getEventStats() {
-    const stats = {};
-    
+  getEventStats(): EventStats {
+    const stats: EventStats = {};
+
     for (const [eventName, history] of this.eventHistory.entries()) {
       stats[eventName] = {
         count: history.length,
@@ -191,11 +235,11 @@ export class EventManager extends EventEmitter {
         listeners: this.listenerCount(eventName)
       };
     }
-    
+
     return stats;
   }
 
-  destroy() {
+  destroy(): void {
     this.removeAllListeners();
     this.wildcardHandlers.clear();
     this.eventHistory.clear();
