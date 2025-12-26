@@ -1,4 +1,3 @@
-// @ts-nocheck
 import express from 'express';
 import type { GamificationKitInstance } from '../types/config.js';
 

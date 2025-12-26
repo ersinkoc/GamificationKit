@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Logger } from '../utils/logger.js';
 import type { GamificationKitInstance } from '../types/config.js';
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createServer, Server as HTTPServer, IncomingMessage } from 'http';
 import type { Server as WSServer, WebSocket } from 'ws';
 import type { EventManager } from './EventManager.js';

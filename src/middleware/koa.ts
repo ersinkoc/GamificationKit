@@ -1,4 +1,3 @@
-// @ts-nocheck
 export function koaMiddleware(gamificationKit) {
 import type { GamificationKitInstance } from '../types/config.js';
   return async (ctx, next) => {

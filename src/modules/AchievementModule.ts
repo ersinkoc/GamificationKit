@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { BaseModule } from './BaseModule.js';
 import { validators } from '../utils/validators.js';
 

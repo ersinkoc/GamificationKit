@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
+import { StorageInterface, type StorageOptions } from './StorageInterface.js';
 import type { StorageKey, StorageValue } from '../types/storage.js';
 import type { Pool, PoolClient } from 'pg';
 
@@ -224,8 +223,8 @@ export class PostgresStorage extends StorageInterface {
     return this.increment(key, -amount);
   }
 
-  async mget(keys: StorageKey[]): Promise<Record<string, any>> {
-    if (keys.length === 0) return {};
+  async mget(keys: StorageKey[]): Promise<any[]> {
+    if (keys.length === 0) return [];
 
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
     const result = await this.client!.query(
@@ -240,12 +239,7 @@ export class PostgresStorage extends StorageInterface {
       map[row.key] = row.value;
     });
 
-    const finalResult: Record<string, any> = {};
-    keys.forEach(key => {
-      finalResult[key] = map[key] || null;
-    });
-
-    return finalResult;
+    return keys.map(key => map[key] || null);
   }
 
   async mset(entries: Record<string, any>): Promise<void> {
@@ -324,7 +318,7 @@ export class PostgresStorage extends StorageInterface {
     return result.rowCount && result.rowCount > 0 ? 1 : 0;
   }
 
-  async zrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
+  async zrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
     const result = await this.client!.query(
       `SELECT member, score FROM ${this.tablePrefix}sortedsets
        WHERE key = $1
@@ -338,13 +332,13 @@ export class PostgresStorage extends StorageInterface {
     const sliced = rows.slice(actualStart, actualStop);
 
     // Fix BUG-041: Return array of objects format like MemoryStorage/MongoStorage
-    if (options.withScores) {
+    if (withScores) {
       return sliced.map((r: any) => ({ member: r.member, score: r.score }));
     }
     return sliced.map((r: any) => r.member);
   }
 
-  async zrevrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
+  async zrevrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
     const result = await this.client!.query(
       `SELECT member, score FROM ${this.tablePrefix}sortedsets
        WHERE key = $1
@@ -358,7 +352,7 @@ export class PostgresStorage extends StorageInterface {
     const sliced = rows.slice(actualStart, actualStop);
 
     // Fix BUG-041: Return array of objects format like MemoryStorage/MongoStorage
-    if (options.withScores) {
+    if (withScores) {
       return sliced.map((r: any) => ({ member: r.member, score: r.score }));
     }
     return sliced.map((r: any) => r.member);

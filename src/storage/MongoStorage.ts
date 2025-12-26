@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
+import { StorageInterface, type StorageOptions } from './StorageInterface.js';
 import type { StorageKey, StorageValue } from '../types/storage.js';
 import type { MongoClient, Db } from 'mongodb';
 
@@ -176,23 +175,19 @@ export class MongoStorage extends StorageInterface {
     return this.increment(key, -amount);
   }
 
-  async mget(keys: StorageKey[]): Promise<Record<string, any>> {
+  async mget(keys: StorageKey[]): Promise<any[]> {
     const collection = this.db!.collection<MongoDoc>(`${this.collectionPrefix}keyvalue`);
     const docs = await collection.find({ key: { $in: keys } }).toArray();
 
-    const result: Record<string, any> = {};
     const docMap = new Map(docs.map(d => [d.key, d]));
 
-    for (const key of keys) {
+    return keys.map(key => {
       const doc = docMap.get(key);
       if (doc && (!doc.expiresAt || doc.expiresAt > new Date())) {
-        result[key] = doc.value;
-      } else {
-        result[key] = null;
+        return doc.value;
       }
-    }
-
-    return result;
+      return null;
+    });
   }
 
   async mset(entries: Record<string, any>): Promise<void> {
@@ -273,7 +268,7 @@ export class MongoStorage extends StorageInterface {
     return result.deletedCount > 0 ? 1 : 0;
   }
 
-  async zrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
+  async zrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
     const collection = this.db!.collection<MongoDoc>(`${this.collectionPrefix}sortedsets`);
     const docs = await collection
       .find({ key })
@@ -285,13 +280,13 @@ export class MongoStorage extends StorageInterface {
     const sliced = docs.slice(actualStart, actualStop);
 
     // Fix BUG-028: Return array of objects format like MemoryStorage
-    if (options.withScores) {
+    if (withScores) {
       return sliced.map(d => ({ member: d.member, score: d.score }));
     }
     return sliced.map(d => d.member);
   }
 
-  async zrevrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
+  async zrevrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
     const collection = this.db!.collection<MongoDoc>(`${this.collectionPrefix}sortedsets`);
     const docs = await collection
       .find({ key })
@@ -303,7 +298,7 @@ export class MongoStorage extends StorageInterface {
     const sliced = docs.slice(actualStart, actualStop);
 
     // Fix BUG-028: Return array of objects format like MemoryStorage
-    if (options.withScores) {
+    if (withScores) {
       return sliced.map(d => ({ member: d.member, score: d.score }));
     }
     return sliced.map(d => d.member);

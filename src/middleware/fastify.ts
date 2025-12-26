@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Fix BUG-001: Factory function to wrap fastify plugin with context
 import type { GamificationKitInstance } from '../types/config.js';
 export function fastifyPlugin(gamificationKitInstance) {

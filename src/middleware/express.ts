@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { GamificationKitInstance } from '../types/config.js';
 import type { Request, Response, NextFunction } from 'express';
 

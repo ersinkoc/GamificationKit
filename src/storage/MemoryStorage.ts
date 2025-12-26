@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
 import type { StorageKey, StorageValue } from '../types/storage.js';
 
@@ -165,10 +164,10 @@ export class MemoryStorage extends StorageInterface {
     return this.increment(key, -amount);
   }
 
-  async mget(keys: StorageKey[]): Promise<Record<string, any>> {
-    const results: Record<string, any> = {};
+  async mget(keys: StorageKey[]): Promise<any[]> {
+    const results: any[] = [];
     for (const key of keys) {
-      results[key] = await this.get(key);
+      results.push(await this.get(key));
     }
     return results;
   }
@@ -522,7 +521,7 @@ export class MemoryStorage extends StorageInterface {
     return result;
   }
 
-  async hmset(key: StorageKey, fields: Record<string, any>): Promise<string> {
+  async hmset(key: StorageKey, fields: Record<string, any>): Promise<void> {
     if (!this.hashes.has(key)) {
       this.hashes.set(key, new Map());
     }
@@ -531,7 +530,6 @@ export class MemoryStorage extends StorageInterface {
     for (const [field, value] of Object.entries(fields)) {
       hash.set(field, value);
     }
-    return 'OK';
   }
 
   async hmget(key: StorageKey, fields: string[]): Promise<any[]> {

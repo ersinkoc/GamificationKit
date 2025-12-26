@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { StorageInterface, ZRangeOptions, type StorageOptions } from './StorageInterface.js';
+import { StorageInterface, type StorageOptions } from './StorageInterface.js';
 import type { StorageKey, StorageValue } from '../types/storage.js';
 import type { RedisClientType } from 'redis';
 
@@ -110,20 +109,18 @@ export class RedisStorage extends StorageInterface {
     return await this.client!.decrBy(this.getKey(key), amount);
   }
 
-  async mget(keys: StorageKey[]): Promise<Record<string, any>> {
+  async mget(keys: StorageKey[]): Promise<any[]> {
     const prefixedKeys = keys.map(k => this.getKey(k));
     const values = await this.client!.mGet(prefixedKeys);
-    const result: Record<string, any> = {};
 
-    keys.forEach((key, index) => {
+    return values.map(value => {
+      if (value === null || value === undefined) return value;
       try {
-        result[key] = JSON.parse(values[index]!);
+        return JSON.parse(value);
       } catch {
-        result[key] = values[index];
+        return value;
       }
     });
-
-    return result;
   }
 
   async mset(entries: Record<string, any>): Promise<void> {
@@ -162,15 +159,15 @@ export class RedisStorage extends StorageInterface {
     return result > 0 ? 1 : 0;
   }
 
-  async zrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
-    if (options.withScores) {
+  async zrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
+    if (withScores) {
       return await this.client!.zRangeWithScores(this.getKey(key), start, stop);
     }
     return await this.client!.zRange(this.getKey(key), start, stop);
   }
 
-  async zrevrange(key: StorageKey, start: number, stop: number, options: ZRangeOptions = {}): Promise<any[]> {
-    if (options.withScores) {
+  async zrevrange(key: StorageKey, start: number, stop: number, withScores?: boolean): Promise<any[]> {
+    if (withScores) {
       return await this.client!.zRangeWithScores(this.getKey(key), start, stop, { REV: true });
     }
     return await this.client!.zRange(this.getKey(key), start, stop, { REV: true });
