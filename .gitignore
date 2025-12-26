@@ -10,6 +10,7 @@ build/
 *.min.js
 *.min.css
 !dist/.gitkeep
+docs/api/
 
 # TypeScript
 *.tsbuildinfo

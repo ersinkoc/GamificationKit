@@ -1,0 +1,29 @@
+{
+  "output": {
+    "json": "benchmark-results.json",
+    "markdown": "benchmark-results.md"
+  },
+  "suites": {
+    "points": {
+      "enabled": true,
+      "userCount": 100
+    },
+    "storage": {
+      "enabled": true,
+      "storageType": "memory"
+    },
+    "events": {
+      "enabled": true,
+      "maxListeners": 500
+    },
+    "modules": {
+      "enabled": true,
+      "userCount": 100
+    }
+  },
+  "options": {
+    "minSamples": 5,
+    "maxTime": 5,
+    "delay": 0.005
+  }
+}

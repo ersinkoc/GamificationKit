@@ -1,0 +1,48 @@
+{
+  "entryPoints": ["./src"],
+  "entryPointStrategy": "expand",
+  "out": "./docs/api",
+  "exclude": [
+    "**/node_modules/**",
+    "**/tests/**",
+    "**/dist/**",
+    "**/examples/**"
+  ],
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeInternal": true,
+  "readme": "./README.md",
+  "name": "@oxog/gamification-kit",
+  "includeVersion": true,
+  "sort": ["source-order"],
+  "kindSortOrder": [
+    "Class",
+    "Interface",
+    "TypeAlias",
+    "Function",
+    "Variable"
+  ],
+  "categorizeByGroup": true,
+  "categoryOrder": [
+    "Core",
+    "Modules",
+    "Storage",
+    "Middleware",
+    "Types",
+    "*"
+  ],
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "plugin": ["typedoc-plugin-markdown"],
+  "gitRevision": "main",
+  "githubPages": false,
+  "hideGenerator": true,
+  "searchInComments": true,
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  }
+}
