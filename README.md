@@ -1,5 +1,12 @@
 # @oxog/gamification-kit
 
+[![CI/CD Pipeline](https://github.com/ersinkoc/GamificationKit/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/GamificationKit/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/ersinkoc/GamificationKit/actions/workflows/codeql.yml/badge.svg)](https://github.com/ersinkoc/GamificationKit/actions/workflows/codeql.yml)
+[![npm version](https://img.shields.io/npm/v/@oxog/gamification-kit.svg)](https://www.npmjs.com/package/@oxog/gamification-kit)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)](https://nodejs.org/)
+
 A comprehensive, production-ready gamification system for Node.js applications that can be easily integrated with minimal code changes.
 
 ## Features
